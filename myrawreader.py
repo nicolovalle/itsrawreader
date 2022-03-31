@@ -1,6 +1,26 @@
-test_fname = 'o2_rawtf_run00505582_tf00002528_epn120.tf.raw'
+#!/usr/bin/env python3
 
-f = open(test_fname,'rb')
+"""
+
+myrawreader.py
+
+Usage: ./myrawreader.py -f <file.raw> [--message]
+
+Options:
+    -h --help              Display this help
+    -f <file.raw>          Raw ITD data file
+    [--message]            Skip data word without problems [default: 0]
+
+"""
+
+import docopt
+import sys
+
+argv = docopt.docopt(__doc__,version="1.0")
+rawfilename = str(argv["-f"])
+print_only_message = bool(argv["--message"])
+
+f = open(rawfilename,'rb')
 word = f.read(16)
 
 GBTWORD=list(word)[0:10]
@@ -97,7 +117,9 @@ def getnext():
 
 
 def gettriggers(trg,outtype='list'): # list or string
-    trglist = {0: 'ORB', 1: 'HB', 2: 'HBr', 3: 'HC', 4:'PhT', 5:'PP', 6:'Cal', 7:'SOT', 8:'EOT', 9:'SOC', 10:'EOC', 11:'TF', 12:'FErst', 13: 'Cont', 14: 'Running'}
+    ctp12 = trg & 4095 
+    # 4095: 12'b1 --> selecting 12 lowest bits received from CTP
+    trglist = {0: 'ORB', 1: 'HB', 2: 'HBr', 3: 'HC', 4:'PhT', 5:'PP', 6:'Cal', 7:'SOT', 8:'EOT', 9:'SOC', 10:'EOC', 11:'TF', 12:'FErst', 13: 'cont', 14: 'running'}
     if outtype == 'list':
         return [trglist[b] for b in trglist if bool( (trg>>b) & 1)]
     elif outtype == 'string':
@@ -105,24 +127,93 @@ def gettriggers(trg,outtype='list'): # list or string
         for b in trglist:
             if bool( (trg>>b) & 1):
                 toret=toret+' '+trglist[b]
-        return toret
+        return toret+' (ctp %d)'%(ctp12)
         
     
     
-def wordtype():
+def readword():
     worddict={224:'IHW', 232:'TDH', 240:'TDT', 228:'DDW', 248:'CDW'}
     #ITS Header Word, Trigger Data Heder, Trigger Data Trailer, Diagnostic data word, Calibration Data Word
     marker = getbits(72,79)
     try:
-        return worddict[getbits(72,79)]
+        wordtype = worddict[marker]
     except:
+        marker = getbits(77,79)
         worddict={1:' . ', 5:'DIA', 2:' . ', 6:'DIA', 7:'STA'}      
         # Data, Diagnostic data, Status word
   
         try:
-            return worddict[getbits(77,79)]
+            wordtype = worddict[marker]
         except:
-            return '???'
+            wordtype = '???'
+
+    comments = ''
+
+    ## Reading ITS header word
+    if wordtype == 'IHW':
+        nlanes = getbits(0,27,'s').count('1')
+        comments = "%d active lanes"%(nlanes)
+
+    ## Reading trigger data header
+    if wordtype == 'TDH':
+        orbitid = getbits(32,36,'0x')
+        continuation = 'continuation' if bool(getbits(14,14)) else ''
+        nodata = 'nodata' if bool(getbits(13,13)) else ''
+        internal = 'internal' if bool(getbits(12,12)) else ''
+        trgtype = getbits(0,11)
+        comments = "orbit %s . %s . %s . %s . trg %d"%(orbitid, continuation, nodata, internal,trgtype)
+
+    ## Reading trigger data trailer
+    if wordtype == 'TDT':
+        violation = 'start_viol' if bool(getbits(67,67)) else ''
+        timeout = 'timeout' if bool(getbits(65,65)) else ''
+        packet_done = 'packet_done' if bool(getbits(64,64)) else ''
+        status_dict = {1:'W!', 2:'E!', 3:'F!'}
+        lane_status_bit = [getbits(2*i,2*i + 1) for i in range(27)]
+        lane_status = ["%d:%s"%(i,status_dict[lane_status_bit[i]]) for i in range(27) if lane_status_bit[i] in status_dict]
+        comments = '%s . %s . %s . %s '%(packet_done, violation, timeout, 'Lanes:' if bool(len(lane_status)) else 'lanes ok')
+        for C in lane_status:
+            comments = comments + C
+
+    ## Reading diagnostic data word
+    if wordtype == 'DDW':
+        if getbits(68,71) != 0:
+            comments = '??????? expected index = 0'
+        else:
+            violation = 'violation' if bool(getbits(67,67)) else ''
+            timeout = 'timeout' if bool(getbits(65,65)) else ''
+            error_summ = 'Lanes in W/E/F' if getbits(0,55,'s').count('1')>0 else 'lanes ok'
+            comments = '%s . %s . %s'%(violation, timeout, error_summ)
+        
+    if wordtype == ' . ':
+        #scan_words = [getbits(8*i,8*i+7,'x') for i in range(9)]
+        # only first byte is an errr message ??
+        scan_words = [getbits(8*i,8*i+7,'x') for i in range(1)]
+        error_dict = {'f4': 'Detector timeout', 'f5': '8b10b OoT', 'f6': 'Alp. protocol error', 'f7': 'Lane FIFO overflow', \
+                      'f8': 'FSM eror', 'f9': 'Pending det-events limit', 'fA': 'Pending lane-events limit', \
+                      'fb': 'Lane protocol error', 'fe': '8b10b in non fatal byte'}
+        error_messages = [error_dict[s] for s in scan_words if s in error_dict]
+            
+        for E in error_messages:
+            comments = comments+'E!:'+E+' '
+
+        # Reading inner barrel data    
+        b5 = getbits(72,76)
+        if marker == 1: #inner
+            comments = comments+" lane "+str(b5)
+        elif marker == 2: #outer
+            OBlanesdict={'40': 0, '46': 6, '48': 7, '4e': 13, '50': 14, '56': 20, '58': 21, '5e': 27, \
+                         '43': 6,                   '4b': 10, '53': 17,                     '5b': 24}
+            try:
+                comments = comments+"-lane "+str(OBlanesdict[getbits(72,79,'x')])
+            except:
+                comments = comments+"-lane ???"
+            
+            
+
+    return wordtype, comments
+
+    
 
 
 
@@ -130,6 +221,16 @@ rdhflag = True
 current_rdh_offset = -1
 offset_new_packet = -1
 comments = ''
+
+
+def myprint(dump, wtype, comments):
+    dump1 = str(dump)
+    wtype1 = str(wtype) if len(str(wtype))==5 else ' '+str(wtype)+' '
+    comments1 = '-' if comments=='' else str(comments) 
+    justdata = wtype == ' . ' and comments[0] == '-'
+    flag = not print_only_message or not justdata
+    if flag:
+        print('%s %s  %s'%(dump1, wtype1, comments1))
 
 while word:
 
@@ -154,42 +255,31 @@ while word:
         readRDH(1)
         current_rdh_offset = int(OFFSET,16)
         offset_new_packet = RDHoffset_new_packet
-        print(getbits(0,79,'dump'),"|RDH|",comments)
+        myprint(getbits(0,79,'dump'),"|RDH|",comments)
         getnext()
 
         readRDH(2)
-        print(getbits(0,79,'dump'),"|RDH|",comments)
+        myprint(getbits(0,79,'dump'),"|RDH|",comments)
         getnext()
         
         readRDH(3)
         comments="fee %s . orb %s . next: %d"%(RDHfeeid, RDHorbit, RDHoffset_new_packet)
-        print(getbits(0,79,'dump'),"|RDH|",comments)
+        myprint(getbits(0,79,'dump'),"|RDH|",comments)
         TriggerList = gettriggers(RDHtrg,'string')
         getnext()
 
         readRDH(4)
         comments="detfield: %d . --%s--"%(RDHdet_field,gettriggers(RDHtrg,'string'))
-        print(getbits(0,79,'dump'),"|RDH|",comments)
+        myprint(getbits(0,79,'dump'),"|RDH|",comments)
 
 
         rdhflag = False
 
     else:
-        if wordtype() == ' . ':
-            scan_words = [getbits(8*i,8*i+7,'x') for i in range(9)]
-            error_dict = {'f4': 'Detector timeout', 'f5': '8b10b OoT', 'f6': 'Alp. protocol error', 'f7': 'Lane FIFO overflow', \
-                          'f8': 'FSM eror', 'f9': 'Pending det-events limit', 'fA': 'Pending lane-events limit', \
-                          'fb': 'Lane protocol error', 'fe': '8b10b in non fatal byte'}
-            #error_messages = [error_dict[s] for s in scan_words if s in error_dict]
-            # only first byte is an errr message ??
-            error_messages = [error_dict[s] for s in scan_words[0:1] if s in error_dict]
-            
-            
-            for E in error_messages:
-                comments = comments+' E!:'+E
-            
-                
-        print("%s  %s %s"%(getbits(0,79,'dump'),wordtype(),comments))
+        wordtype, comments = readword()
+         
+        myprint(getbits(0,79,'dump'),wordtype,comments)       
+        #print("%s  %s %s"%(getbits(0,79,'dump'),wordtype,comments))
         
         
         
