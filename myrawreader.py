@@ -4,27 +4,52 @@
 
 myrawreader.py
 
-Usage: ./myrawreader.py -f <file.raw> [--message]
+Usage: ./myrawreader.py -f <file.raw> [-e <excludedwords>] [--message] [-t <tempdirectory>] [--append] [--silent]
 
 Options:
-    -h --help              Display this help
-    -f <file.raw>          Raw ITD data file
-    [--message]            Skip data word without problems [default: 0]
+    -h --help                Display this help
+    -f <file.raw>            Raw ITD data file
+    -e <excludedwords>       Comma separated list of GBT words not to print [default: none]
+    --message                Skip data word without problems [default: False]
+    -t <tempdirectory>       Temp directory where the final file is built [default: no]
+    --append                 Do not erare the tempdirectory [default: False]
+    --silent                 Do not print here
+    
+                          
 
 """
 
+#RDH,.,IHW,TDH,TDT,DDW,CDW,DIA,STA
+ 
 import docopt
 import sys
+import os
+
 
 argv = docopt.docopt(__doc__,version="1.0")
 rawfilename = str(argv["-f"])
 print_only_message = bool(argv["--message"])
+excluded_words = str(argv["-e"])
+tdir = str(argv["-t"])
+appendfiles = bool(argv["--append"])
+silent = bool(argv["--silent"])
+
+print("Processing file %s"%(rawfilename))
+
+if tdir != 'no':
+    if not os.path.exists(tdir):
+        os.makedirs(tdir)
+        print("New directory "+tdir+" created")
+    elif not appendfiles:
+        os.system('rm -f '+tdir+'/*')
 
 f = open(rawfilename,'rb')
 word = f.read(16)
 
 GBTWORD=list(word)[0:10]
 OFFSET='0x00000000'
+
+RDHMEM = ''
 
 RDHversion = 0
 RDHsize = 0
@@ -224,16 +249,37 @@ comments = ''
 
 
 def myprint(dump, wtype, comments):
+
+    global RDHorbit
+    global RDHMEM
+
     dump1 = str(dump)
     wtype1 = str(wtype) if len(str(wtype))==5 else ' '+str(wtype)+' '
-    comments1 = '-' if comments=='' else str(comments) 
+    comments1 = '-' if comments=='' else str(comments)
+    # PLACEHOLDER: THE LANES MUST BE DECODED!
+    comments1 = comments1.replace("lane ???","")
     justdata = wtype == ' . ' and comments[0] == '-'
     flag = not print_only_message or not justdata
-    if flag:
+    flag = flag and not (wtype.replace(' ','').replace('|','') in excluded_words)
+    if flag and not silent:
         print('%s %s  %s'%(dump1, wtype1, comments1))
 
-while word:
+    if tdir != 'no':
+    	tfile = open(tdir+'/'+str(int(str(RDHorbit),16)).zfill(30)+'.txt','a')
+    	if flag:
+    	    tmsg = '%s %s %s\n'%(dump1, wtype1, comments1)
+    	    if wtype == '|RDH ':
+    	        RDHMEM = tmsg
+    	    elif wtype == ' RDH ' and RDHMEM  != '':
+    	        tfile.write(RDHMEM)
+    	        tfile.write(tmsg)
+    	        RDHMEM = ''
+    	    else:
+    	        tfile.write(tmsg)
+    	tfile.close()
 
+
+while word:
 
     comments=''
 
@@ -247,7 +293,8 @@ while word:
     #OPERATIONS WITH WORD
 
     if (int(OFFSET,16)-current_rdh_offset) == offset_new_packet:
-        print(' '*48+'-----')# --------expected new packet')
+        if not silent:
+            print(' '*48+'-----')# --------expected new packet')
         rdhflag = True
 
     
@@ -255,22 +302,22 @@ while word:
         readRDH(1)
         current_rdh_offset = int(OFFSET,16)
         offset_new_packet = RDHoffset_new_packet
-        myprint(getbits(0,79,'dump'),"|RDH|",comments)
+        myprint(getbits(0,79,'dump'),"|RDH ",comments)
         getnext()
 
         readRDH(2)
-        myprint(getbits(0,79,'dump'),"|RDH|",comments)
+        myprint(getbits(0,79,'dump')," RDH ",comments)
         getnext()
-        
+    
         readRDH(3)
         comments="fee %s . orb %s . next: %d"%(RDHfeeid, RDHorbit, RDHoffset_new_packet)
-        myprint(getbits(0,79,'dump'),"|RDH|",comments)
+        myprint(getbits(0,79,'dump')," RDH ",comments)
         TriggerList = gettriggers(RDHtrg,'string')
         getnext()
 
         readRDH(4)
         comments="detfield: %d . --%s--"%(RDHdet_field,gettriggers(RDHtrg,'string'))
-        myprint(getbits(0,79,'dump'),"|RDH|",comments)
+        myprint(getbits(0,79,'dump')," RDH|",comments)
 
 
         rdhflag = False
@@ -290,4 +337,7 @@ while word:
 
 
 
+if tdir != 'no':
+    os.system('rm -f ./myrawreaderoutput.dat')
+    os.system('for i in $(ls '+tdir+'/*.txt); do echo ==NEW ORBIT== >> myrawreaderoutput.dat; cat $i >> myrawreaderoutput.dat; done')
 
