@@ -8,11 +8,11 @@ Usage: ./myrawreader.py -f <file.raw> [-e <excludedwords>] [--message] [-t <temp
 
 Options:
     -h --help                Display this help
-    -f <file.raw>            Raw ITD data file
+    -f <file.raw>            Raw ITS data file
     -e <excludedwords>       Comma separated list of GBT words not to print [default: none]
     --message                Skip data word without problems [default: False]
     -t <tempdirectory>       Temp directory where the final file is built [default: no]
-    --append                 Do not erare the tempdirectory [default: False]
+    --append                 Do not erase the tempdirectory [default: False]
     --silent                 Do not print here
     --merge                  Merge the created temp files into myrawreaderoutpur.dat [default: False]
                           
