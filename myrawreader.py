@@ -4,7 +4,7 @@
 
 myrawreader.py
 
-Usage: ./myrawreader.py -f <file.raw> [-e <excludedwords>] [--message] [-t <tempdirectory>] [--append] [--silent]
+Usage: ./myrawreader.py -f <file.raw> [-e <excludedwords>] [--message] [-t <tempdirectory>] [--append] [--silent] [--merge]
 
 Options:
     -h --help                Display this help
@@ -14,7 +14,7 @@ Options:
     -t <tempdirectory>       Temp directory where the final file is built [default: no]
     --append                 Do not erare the tempdirectory [default: False]
     --silent                 Do not print here
-    
+    --merge                  Merge the created temp files into myrawreaderoutpur.dat [default: False]
                           
 
 """
@@ -33,6 +33,14 @@ excluded_words = str(argv["-e"])
 tdir = str(argv["-t"])
 appendfiles = bool(argv["--append"])
 silent = bool(argv["--silent"])
+merge = bool(argv["--merge"])
+
+if merge and tdir == 'no':
+    print("What are you asking me to merge? Please enable text file production!")
+    exit()
+if appendfiles and tdir == 'no':
+    print("What should I append? Please anable text file production!")
+    exit()
 
 print("Processing file %s"%(rawfilename))
 
@@ -228,7 +236,9 @@ def readword():
             comments = comments+" lane "+str(b5)
         elif marker == 2: #outer
             OBlanesdict={'40': 0, '46': 6, '48': 7, '4e': 13, '50': 14, '56': 20, '58': 21, '5e': 27, \
-                         '43': 6,                   '4b': 10, '53': 17,                     '5b': 24}
+                         '43': 3,                   '4b': 10, '53': 17,                     '5b': 24, \
+                         '41': 1, '42': 2, '44': 4, '45': 5,  '49': 8,  '4a': 9,  '4c': 11, '4d': 12, \
+                         '51': 15,'52': 16,'54': 18,'55': 19, '59': 22, '5a': 23, '5c': 25, '5d': 26}
             try:
                 comments = comments+"-lane "+str(OBlanesdict[getbits(72,79,'x')])
             except:
@@ -337,7 +347,7 @@ while word:
 
 
 
-if tdir != 'no':
+if tdir != 'no' and merge:
     os.system('rm -f ./myrawreaderoutput.dat')
     os.system('for i in $(ls '+tdir+'/*.txt); do echo ==NEW ORBIT== >> myrawreaderoutput.dat; cat $i >> myrawreaderoutput.dat; done')
 
