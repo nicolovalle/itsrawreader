@@ -4,17 +4,20 @@
 
 myrawreader.py
 
-Usage: ./myrawreader.py -f <file.raw> [-e <excludedwords>] [--message] [-t <tempdirectory>] [--append] [--silent] [--merge]
+Usage: ./myrawreader.py -f <file.raw> [-e <excludedwords>] [-l <lane>] [-i <feeid>] [--message] [-t <tempdirectory>] [--append] [--silent] [--merge]
 
 Options:
     -h --help                Display this help
     -f <file.raw>            Raw ITS data file
     -e <excludedwords>       Comma separated list of GBT words not to print [default: none]
+    -l <lane>                Comma separated list of lanes to print [default: -1]
+    -i <feeid>               Comma separated list of feeids to print (0xABCD) [default: -1]
     --message                Skip data word without problems [default: False]
     -t <tempdirectory>       Temp directory where the final file is built [default: no]
     --append                 Do not erase the tempdirectory [default: False]
     --silent                 Do not print here
     --merge                  Merge the created temp files into myrawreaderoutpur.dat [default: False]
+
                           
 
 """
@@ -30,6 +33,8 @@ argv = docopt.docopt(__doc__,version="1.0")
 rawfilename = str(argv["-f"])
 print_only_message = bool(argv["--message"])
 excluded_words = str(argv["-e"])
+lanes_to_print = [int (LL) for LL in str(argv["-l"]).split(",")]
+feeid_to_print = str(argv["-i"]).split(",")
 tdir = str(argv["-t"])
 appendfiles = bool(argv["--append"])
 silent = bool(argv["--silent"])
@@ -181,6 +186,7 @@ def readword():
             wordtype = '???'
 
     comments = ''
+    laneid = -1
 
     ## Reading ITS header word
     if wordtype == 'IHW':
@@ -233,6 +239,7 @@ def readword():
         # Reading inner barrel data    
         b5 = getbits(72,76)
         if marker == 1: #inner
+            laneid = int(str(b5))
             comments = comments+" lane "+str(b5)
         elif marker == 2: #outer
             OBlanesdict={'40': 0, '46': 6, '48': 7, '4e': 13, '50': 14, '56': 20, '58': 21, '5e': 27, \
@@ -240,13 +247,15 @@ def readword():
                          '41': 1, '42': 2, '44': 4, '45': 5,  '49': 8,  '4a': 9,  '4c': 11, '4d': 12, \
                          '51': 15,'52': 16,'54': 18,'55': 19, '59': 22, '5a': 23, '5c': 25, '5d': 26}
             try:
-                comments = comments+"-lane "+str(OBlanesdict[getbits(72,79,'x')])
+                laneid = OBlanesdict[getbits(72,79,'x')]
+                comments = comments+"-lane "+str(laneid)
             except:
+                laneid = -999
                 comments = comments+"-lane ???"
             
             
 
-    return wordtype, comments
+    return wordtype, comments, laneid
 
     
 
@@ -258,7 +267,7 @@ offset_new_packet = -1
 comments = ''
 
 
-def myprint(dump, wtype, comments):
+def myprint(dump, wtype, comments, laneid=-1):
 
     global RDHorbit
     global RDHMEM
@@ -271,6 +280,10 @@ def myprint(dump, wtype, comments):
     justdata = wtype == ' . ' and comments[0] == '-'
     flag = not print_only_message or not justdata
     flag = flag and not (wtype.replace(' ','').replace('|','') in excluded_words)
+    if laneid > 0 and -1 not in lanes_to_print and laneid not in lanes_to_print:
+        flag = False
+    if "-1" not in feeid_to_print and RDHfeeid not in feeid_to_print:
+        flag = False
     if flag and not silent:
         print('%s %s  %s'%(dump1, wtype1, comments1))
 
@@ -289,6 +302,8 @@ def myprint(dump, wtype, comments):
     	tfile.close()
 
 
+#### MAIN LOOP
+
 while word:
 
     comments=''
@@ -303,8 +318,8 @@ while word:
     #OPERATIONS WITH WORD
 
     if (int(OFFSET,16)-current_rdh_offset) == offset_new_packet:
-        if not silent:
-            print(' '*48+'-----')# --------expected new packet')
+        #if not silent:
+            #print(' '*48+'-----')# --------expected new packet')
         rdhflag = True
 
     
@@ -333,9 +348,9 @@ while word:
         rdhflag = False
 
     else:
-        wordtype, comments = readword()
+        wordtype, comments, laneid = readword()
          
-        myprint(getbits(0,79,'dump'),wordtype,comments)       
+        myprint(getbits(0,79,'dump'),wordtype,comments,laneid)       
         #print("%s  %s %s"%(getbits(0,79,'dump'),wordtype,comments))
         
         
