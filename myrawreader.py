@@ -280,7 +280,7 @@ def myprint(dump, wtype, comments, laneid=-1):
     justdata = wtype == ' . ' and comments[0] == '-'
     flag = not print_only_message or not justdata
     flag = flag and not (wtype.replace(' ','').replace('|','') in excluded_words)
-    if laneid > 0 and -1 not in lanes_to_print and laneid not in lanes_to_print:
+    if laneid >= 0 and -1 not in lanes_to_print and laneid not in lanes_to_print:
         flag = False
     if "-1" not in feeid_to_print and RDHfeeid not in feeid_to_print:
         flag = False
