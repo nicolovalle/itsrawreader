@@ -59,7 +59,7 @@ if tdir != 'no':
 f = open(rawfilename,'rb')
 word = f.read(16)
 
-GBTWORD=list(word)[0:10]
+GBTWORD=list(word)[0:16]
 OFFSET='0x00000000'
 
 RDHMEM = ''
@@ -76,6 +76,10 @@ RDHpagecount = 0
 RDHstopbit = 0
 RDHdet_field = 0
 RDHparbit = 0
+RDHpacketcounter = 0
+RDHlinkid = 0
+RDHcruid = 0
+RDHdw = 0
 
 
 
@@ -122,6 +126,10 @@ def readRDH(index):
     global RDHstopbit
     global RDHdet_field
     global RDHparbit
+    global RDHlinkid
+    global RDHpacketcounter
+    global RDHcruid
+    global RDHdw
 
     if index == 1:
         RDHversion = getbits(0,7)
@@ -129,6 +137,10 @@ def readRDH(index):
         RDHfeeid = getbits(16,31,'0x')
         RDHsource = getbits(40,47)
         RDHoffset_new_packet = getbits(64,79)
+        RDHlinkid = getbits(96,103)
+        RDHpacketcounter = getbits(104,111)
+        RDHcruid = getbits(112,123)
+        RDHdw = getbits(124,127)
 
     elif index == 2:
         RDHbc = getbits(0,11)
@@ -143,15 +155,17 @@ def readRDH(index):
         RDHdet_field = getbits(0,31)
         RDHparbit = getbits(32,47)
 
+    
 
 
-def getnext():
+
+def getnext(nbyte = 16):
     global word
     global GBTWORD
     global OFFSET
-    word = f.read(16)
-    GBTWORD = list(word)[0:10]
-    OFFSET = '0x'+format(int(OFFSET,16)+16,'x').zfill(8)
+    word = f.read(nbyte)
+    GBTWORD = list(word)[0:16]
+    OFFSET = '0x'+format(int(OFFSET,nbyte)+nbyte,'x').zfill(8)
 
 
 def gettriggers(trg,outtype='list'): # list or string
@@ -273,10 +287,10 @@ def myprint(dump, wtype, comments, laneid=-1):
     global RDHMEM
 
     dump1 = str(dump)
+    if 'RDH' not in wtype:
+        dump1 = dump1[0:len(dump1)-21]+'.'*21
     wtype1 = str(wtype) if len(str(wtype))==5 else ' '+str(wtype)+' '
     comments1 = '-' if comments=='' else str(comments)
-    # PLACEHOLDER: THE LANES MUST BE DECODED!
-    comments1 = comments1.replace("lane ???","")
     justdata = wtype == ' . ' and comments[0] == '-'
     flag = not print_only_message or not justdata
     flag = flag and not (wtype.replace(' ','').replace('|','') in excluded_words)
@@ -327,7 +341,7 @@ while word:
         readRDH(1)
         current_rdh_offset = int(OFFSET,16)
         offset_new_packet = RDHoffset_new_packet
-        comments="## fee %s . next: %d"%(RDHfeeid, RDHoffset_new_packet)
+        comments="## fee %s . next: %d . pack_count: %d"%(RDHfeeid, RDHoffset_new_packet, RDHpacketcounter)
         myprint(getbits(0,79,'dump'),"|RDH ",comments)
         getnext()
 
