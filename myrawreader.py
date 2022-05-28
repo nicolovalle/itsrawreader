@@ -240,7 +240,7 @@ def readword():
         b5 = getbits(72,76)
         if marker == 1: #inner
             laneid = int(str(b5))
-            comments = comments+" lane "+str(b5)
+            comments = comments+"-lane "+str(b5)
         elif marker == 2: #outer
             OBlanesdict={'40': 0, '46': 6, '48': 7, '4e': 13, '50': 14, '56': 20, '58': 21, '5e': 27, \
                          '43': 3,                   '4b': 10, '53': 17,                     '5b': 24, \
