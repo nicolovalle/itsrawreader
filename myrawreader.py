@@ -288,7 +288,7 @@ def myprint(dump, wtype, comments, laneid=-1):
 
     dump1 = str(dump)
     if 'RDH' not in wtype:
-        dump1 = dump1[0:len(dump1)-21]+'.'*21
+        dump1 = dump1.replace('00-00-00-00-00-00-...','.....................')
     wtype1 = str(wtype) if len(str(wtype))==5 else ' '+str(wtype)+' '
     comments1 = '-' if comments=='' else str(comments)
     justdata = wtype == ' . ' and comments[0] == '-'
