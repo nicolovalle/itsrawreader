@@ -72,7 +72,7 @@ RDHoffset_new_packet = 0
 RDHbc = 0
 RDHorbit = 0
 RDHtrg = 0
-RHDpagecount = 0
+RDHpagecount = 0
 RDHstopbit = 0
 RDHdet_field = 0
 RDHparbit = 0
@@ -118,7 +118,7 @@ def readRDH(index):
     global RDHbc
     global RDHorbit
     global RDHtrg
-    global RHDpagecount
+    global RDHpagecount
     global RDHstopbit
     global RDHdet_field
     global RDHparbit
@@ -136,7 +136,7 @@ def readRDH(index):
 
     elif index == 3:
         RDHtrg = getbits(0,31)
-        RHDpagecount = getbits(32,47)
+        RDHpagecount = getbits(32,47)
         RDHstopbit = getbits(48,55)
 
     elif index == 4:
@@ -327,21 +327,23 @@ while word:
         readRDH(1)
         current_rdh_offset = int(OFFSET,16)
         offset_new_packet = RDHoffset_new_packet
+        comments="## fee %s . next: %d"%(RDHfeeid, RDHoffset_new_packet)
         myprint(getbits(0,79,'dump'),"|RDH ",comments)
         getnext()
 
         readRDH(2)
+        comments="## orb %s . bc %s"%(RDHorbit, RDHbc)
         myprint(getbits(0,79,'dump')," RDH ",comments)
         getnext()
     
         readRDH(3)
-        comments="fee %s . orb %s . next: %d"%(RDHfeeid, RDHorbit, RDHoffset_new_packet)
+        comments="## stop_bit: %d . page_count: %d"%(RDHstopbit, RDHpagecount)
         myprint(getbits(0,79,'dump')," RDH ",comments)
         TriggerList = gettriggers(RDHtrg,'string')
         getnext()
 
         readRDH(4)
-        comments="detfield: %d . --%s--"%(RDHdet_field,gettriggers(RDHtrg,'string'))
+        comments="## detfield: %d . --%s--"%(RDHdet_field,gettriggers(RDHtrg,'string'))
         myprint(getbits(0,79,'dump')," RDH|",comments)
 
 
