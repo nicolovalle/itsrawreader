@@ -4,15 +4,17 @@
 
 myrawreader.py
 
-Usage: ./myrawreader.py -f <file.raw> [-e <excludedwords>] [-l <lane>] [-i <feeid>] [--message] [-t <tempdirectory>] [--append] [--silent] [--merge]
+Usage: ./myrawreader.py -f <file.raw> [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [--message] [--onlyRDH] [-t <tempdirectory>] [--append] [--silent] [--merge]
 
 Options:
     -h --help                Display this help
     -f <file.raw>            Raw ITS data file
     -e <excludedwords>       Comma separated list of GBT words not to print [default: none]
+    -E <skippedwords>        Comma separated list of GBT words not to decode. Ovverrides -e [default: none]
     -l <lane>                Comma separated list of lanes to print [default: -1]
     -i <feeid>               Comma separated list of feeids to print (0xABCD) [default: -1]
     --message                Skip data word without problems [default: False]
+    --onlyRDH                Read RDH only (skip words according to foreseen offset) [default: False]
     -t <tempdirectory>       Temp directory where the final file is built [default: no]
     --append                 Do not erase the tempdirectory [default: False]
     --silent                 Do not print here
@@ -33,8 +35,10 @@ argv = docopt.docopt(__doc__,version="1.0")
 rawfilename = str(argv["-f"])
 print_only_message = bool(argv["--message"])
 excluded_words = str(argv["-e"])
+skipped_words = str(argv["-E"])
 lanes_to_print = [int (LL) for LL in str(argv["-l"]).split(",")]
 feeid_to_print = str(argv["-i"]).split(",")
+onlyRDH = bool(argv["--onlyRDH"])
 tdir = str(argv["-t"])
 appendfiles = bool(argv["--append"])
 silent = bool(argv["--silent"])
@@ -47,7 +51,13 @@ if appendfiles and tdir == 'no':
     print("What should I append? Please anable text file production!")
     exit()
 
-print("Processing file %s"%(rawfilename))
+if skipped_words != 'none':
+    excluded_words = skipped_words
+    print(skipped_words,excluded_words)
+
+filesize = os.path.getsize(rawfilename)
+last_offset = '0x'+format(int(filesize)-16,'x').zfill(8)
+print("Processing file %s.\nSize: %d. Expected %d lines (up to offset = %s)"%(rawfilename,filesize,filesize/16,last_offset))
 
 if tdir != 'no':
     if not os.path.exists(tdir):
@@ -76,11 +86,12 @@ RDHpagecount = 0
 RDHstopbit = 0
 RDHdet_field = 0
 RDHparbit = 0
-RDHpacketcounter = 0
-RDHlinkid = 0
+RDHpacketcounter = -1
+DHlinkid = 0
 RDHcruid = 0
 RDHdw = 0
 
+PREV={'RDHpacketcounter':-1}
 
 
 def getbits(bit1, bit2, outtype = "d"): 
@@ -164,8 +175,8 @@ def getnext(nbyte = 16):
     global GBTWORD
     global OFFSET
     word = f.read(nbyte)
-    GBTWORD = list(word)[0:16]
-    OFFSET = '0x'+format(int(OFFSET,nbyte)+nbyte,'x').zfill(8)
+    GBTWORD = list(word)[0:nbyte]
+    OFFSET = '0x'+format(int(OFFSET,16)+nbyte,'x').zfill(8)
 
 
 def gettriggers(trg,outtype='list'): # list or string
@@ -199,6 +210,8 @@ def readword():
         except:
             wordtype = '???'
 
+    if wordtype.replace(' ','').replace('|','') in skipped_words:
+        return wordtype, 'skipped', -1
     comments = ''
     laneid = -1
 
@@ -209,7 +222,7 @@ def readword():
 
     ## Reading trigger data header
     if wordtype == 'TDH':
-        orbitid = getbits(32,36,'0x')
+        orbitid = getbits(32,63,'0x')
         continuation = 'continuation' if bool(getbits(14,14)) else ''
         nodata = 'nodata' if bool(getbits(13,13)) else ''
         internal = 'internal' if bool(getbits(12,12)) else ''
@@ -342,6 +355,11 @@ while word:
         current_rdh_offset = int(OFFSET,16)
         offset_new_packet = RDHoffset_new_packet
         comments="## fee %s . next: %d . pack_count: %d"%(RDHfeeid, RDHoffset_new_packet, RDHpacketcounter)
+        if RDHpacketcounter > PREV['RDHpacketcounter']+1:
+            comments = comments + ' (E! jump from %d to %d)'%(PREV['RDHpacketcounter'],RDHpacketcounter)
+        elif RDHpacketcounter < PREV['RDHpacketcounter']+1:
+            comments = comments + ' (N! jump from %d to %d)'%(PREV['RDHpacketcounter'],RDHpacketcounter)
+        PREV['RDHpacketcounter'] = RDHpacketcounter
         myprint(getbits(0,79,'dump'),"|RDH ",comments)
         getnext()
 
@@ -366,12 +384,15 @@ while word:
     else:
         wordtype, comments, laneid = readword()
          
-        myprint(getbits(0,79,'dump'),wordtype,comments,laneid)       
-        #print("%s  %s %s"%(getbits(0,79,'dump'),wordtype,comments))
+        if comments != 'skipped':
+            myprint(getbits(0,79,'dump'),wordtype,comments,laneid)       
+            #print("%s  %s %s"%(getbits(0,79,'dump'),wordtype,comments))
         
         
         
     #end of loop
+    if onlyRDH:
+        getnext(RDHoffset_new_packet - RDHsize)
     getnext()
 
     
