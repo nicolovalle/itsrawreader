@@ -4,7 +4,7 @@
 
 myrawreader.py
 
-Usage: ./myrawreader.py -f <file.raw> [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [-o <offset>] [-r <range>] [--message] [--onlyRDH] [-t <tempdirectory>] [--append] [--silent] [--merge]
+Usage: ./myrawreader.py -f <file.raw> [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [-o <offset>] [-r <range>] [--message] [--onlyRDH]
 
 Options:
     -h --help                Display this help
@@ -16,13 +16,7 @@ Options:
     -o <offset>              Read from n-th byte (0x format) [default: 0x0]
     -r <range>               Interval of GBT words around the offset (format -n:+m) [default: 0:-1]
     --message                Skip data word without problems [default: False]
-    --onlyRDH                Read RDH only (skip words according to foreseen offset) [default: False]
-    -t <tempdirectory>       Temp directory where the final file is built [default: no]
-    --append                 Do not erase the tempdirectory [default: False]
-    --silent                 Do not print here
-    --merge                  Merge the created temp files into myrawreaderoutpur.dat [default: False]
-
-                          
+    --onlyRDH                Read RDH only (skip words according to foreseen offset) [default: False]                     
 
 """
 
@@ -44,33 +38,16 @@ myoffset = int(str(argv["-o"]),16)
 interval = [int(ir) for ir in str(argv["-r"]).split(":")]
 
 onlyRDH = bool(argv["--onlyRDH"])
-tdir = str(argv["-t"])
-appendfiles = bool(argv["--append"])
-silent = bool(argv["--silent"])
-merge = bool(argv["--merge"])
 
-if merge and tdir == 'no':
-    print("What are you asking me to merge? Please enable text file production!")
-    exit()
-if appendfiles and tdir == 'no':
-    print("What should I append? Please anable text file production!")
-    exit()
 
 if skipped_words != 'none':
     excluded_words = skipped_words
-    print(skipped_words,excluded_words)
 
 filesize = os.path.getsize(rawfilename)
 last_offset = '0x'+format(int(filesize)-16,'x').zfill(8)
 print("Processing file %s.\nSize: %d. Contains %d lines (up to offset = %s)"%(rawfilename,filesize,filesize/16,last_offset))
 interval = [max(0,myoffset+16*interval[0]), int(filesize)-16 if interval[1]<0 else min(int(filesize)-16, myoffset + interval[1]*16)] 
 
-if tdir != 'no':
-    if not os.path.exists(tdir):
-        os.makedirs(tdir)
-        print("New directory "+tdir+" created")
-    elif not appendfiles:
-        os.system('rm -f '+tdir+'/*')
 
 f = open(rawfilename,'rb')
 tmp = f.read(interval[0])
@@ -320,22 +297,8 @@ def myprint(dump, wtype, comments, laneid=-1):
         flag = False
     if "-1" not in feeid_to_print and RDHfeeid not in feeid_to_print:
         flag = False
-    if flag and not silent:
+    if flag:
         print('%s %s  %s'%(dump1, wtype1, comments1))
-
-    if tdir != 'no':
-    	tfile = open(tdir+'/'+str(int(str(RDHorbit),16)).zfill(30)+'.txt','a')
-    	if flag:
-    	    tmsg = '%s %s %s\n'%(dump1, wtype1, comments1)
-    	    if wtype == '|RDH ':
-    	        RDHMEM = tmsg
-    	    elif wtype == ' RDH ' and RDHMEM  != '':
-    	        tfile.write(RDHMEM)
-    	        tfile.write(tmsg)
-    	        RDHMEM = ''
-    	    else:
-    	        tfile.write(tmsg)
-    	tfile.close()
 
 
 #### MAIN LOOP
@@ -354,8 +317,6 @@ while word:
     #OPERATIONS WITH WORD
 
     if (int(OFFSET,16)-current_rdh_offset) == offset_new_packet:
-        #if not silent:
-            #print(' '*48+'-----')# --------expected new packet')
         rdhflag = True
 
     
@@ -406,9 +367,4 @@ while word:
 
     
 
-
-
-if tdir != 'no' and merge:
-    os.system('rm -f ./myrawreaderoutput.dat')
-    os.system('for i in $(ls '+tdir+'/*.txt); do echo ==NEW ORBIT== >> myrawreaderoutput.dat; cat $i >> myrawreaderoutput.dat; done')
 
