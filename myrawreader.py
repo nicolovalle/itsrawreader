@@ -4,7 +4,7 @@
 
 myrawreader.py
 
-Usage: ./myrawreader.py -f <file.raw> [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [--message] [--onlyRDH] [-t <tempdirectory>] [--append] [--silent] [--merge]
+Usage: ./myrawreader.py -f <file.raw> [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [-o <offset>] [-r <range>] [--message] [--onlyRDH] [-t <tempdirectory>] [--append] [--silent] [--merge]
 
 Options:
     -h --help                Display this help
@@ -13,6 +13,8 @@ Options:
     -E <skippedwords>        Comma separated list of GBT words not to decode. Ovverrides -e [default: none]
     -l <lane>                Comma separated list of lanes to print [default: -1]
     -i <feeid>               Comma separated list of feeids to print (0xABCD) [default: -1]
+    -o <offset>              Read from n-th byte (0x format) [default: 0x0]
+    -r <range>               Interval of GBT words around the offset (format -n:+m) [default: 0:-1]
     --message                Skip data word without problems [default: False]
     --onlyRDH                Read RDH only (skip words according to foreseen offset) [default: False]
     -t <tempdirectory>       Temp directory where the final file is built [default: no]
@@ -38,6 +40,9 @@ excluded_words = str(argv["-e"])
 skipped_words = str(argv["-E"])
 lanes_to_print = [int (LL) for LL in str(argv["-l"]).split(",")]
 feeid_to_print = str(argv["-i"]).split(",")
+myoffset = int(str(argv["-o"]),16)
+interval = [int(ir) for ir in str(argv["-r"]).split(":")]
+
 onlyRDH = bool(argv["--onlyRDH"])
 tdir = str(argv["-t"])
 appendfiles = bool(argv["--append"])
@@ -57,7 +62,8 @@ if skipped_words != 'none':
 
 filesize = os.path.getsize(rawfilename)
 last_offset = '0x'+format(int(filesize)-16,'x').zfill(8)
-print("Processing file %s.\nSize: %d. Expected %d lines (up to offset = %s)"%(rawfilename,filesize,filesize/16,last_offset))
+print("Processing file %s.\nSize: %d. Contains %d lines (up to offset = %s)"%(rawfilename,filesize,filesize/16,last_offset))
+interval = [max(0,myoffset+16*interval[0]), int(filesize)-16 if interval[1]<0 else min(int(filesize)-16, myoffset + interval[1]*16)] 
 
 if tdir != 'no':
     if not os.path.exists(tdir):
@@ -67,10 +73,11 @@ if tdir != 'no':
         os.system('rm -f '+tdir+'/*')
 
 f = open(rawfilename,'rb')
+tmp = f.read(interval[0])
 word = f.read(16)
 
 GBTWORD=list(word)[0:16]
-OFFSET='0x00000000'
+OFFSET = '0x'+format(interval[0],'x').zfill(8)
 
 RDHMEM = ''
 
@@ -177,6 +184,8 @@ def getnext(nbyte = 16):
     word = f.read(nbyte)
     GBTWORD = list(word)[0:nbyte]
     OFFSET = '0x'+format(int(OFFSET,16)+nbyte,'x').zfill(8)
+    if int(OFFSET,16) > interval[1]:
+        exit()
 
 
 def gettriggers(trg,outtype='list'): # list or string
