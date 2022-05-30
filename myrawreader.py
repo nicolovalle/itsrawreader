@@ -122,7 +122,7 @@ def getbits(bit1, bit2, outtype = "d"):
         return hex(Number)
     elif outtype == 'dump':
         HexList = [format(B,'x') for B in GBTWORD]
-        toret = OFFSET+":   "
+        toret = ''
         for H in HexList:
             toret=toret+H.zfill(2)+"-"
         return toret+'...'
@@ -301,8 +301,9 @@ def myprint(dump, wtype, comments, laneid=-1):
 
     global RDHorbit
     global RDHMEM
+    global OFFSET
 
-    dump1 = str(dump)
+    dump1 = OFFSET+':   '+str(dump)
     if 'RDH' not in wtype:
         dump1 = dump1.replace('00-00-00-00-00-00-...','.....................')
     wtype1 = str(wtype) if len(str(wtype))==5 else ' '+str(wtype)+' '
@@ -347,23 +348,23 @@ while word:
         elif RDHpacketcounter < PREV['RDHpacketcounter']+1:
             comments = comments + ' (N! jump from %d to %d)'%(PREV['RDHpacketcounter'],RDHpacketcounter)
         PREV['RDHpacketcounter'] = RDHpacketcounter
-        myprint(getbits(0,79,'dump'),"|RDH ",comments)
+        myprint(getbits(0,127,'dump'),"|RDH ",comments)
         getnext()
 
         readRDH(2)
         comments="## orb %s . bc %s"%(RDHorbit, RDHbc)
-        myprint(getbits(0,79,'dump')," RDH ",comments)
+        myprint(getbits(0,127,'dump')," RDH ",comments)
         getnext()
     
         readRDH(3)
         comments="## stop_bit: %d . page_count: %d"%(RDHstopbit, RDHpagecount)
-        myprint(getbits(0,79,'dump')," RDH ",comments)
+        myprint(getbits(0,127,'dump')," RDH ",comments)
         TriggerList = gettriggers(RDHtrg,'string')
         getnext()
 
         readRDH(4)
         comments="## detfield: %d . --%s--"%(RDHdet_field,gettriggers(RDHtrg,'string'))
-        myprint(getbits(0,79,'dump')," RDH|",comments)
+        myprint(getbits(0,127,'dump')," RDH|",comments)
 
 
         rdhflag = False
@@ -372,7 +373,7 @@ while word:
         wordtype, comments, laneid = readword()
          
         if comments != 'skipped':
-            myprint(getbits(0,79,'dump'),wordtype,comments,laneid)       
+            myprint(getbits(0,127,'dump'),wordtype,comments,laneid)       
             #print("%s  %s %s"%(getbits(0,79,'dump'),wordtype,comments))
         
         
