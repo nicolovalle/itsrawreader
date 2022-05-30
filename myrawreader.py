@@ -4,7 +4,7 @@
 
 myrawreader.py
 
-Usage: ./myrawreader.py -f <file.raw> [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [-o <offset>] [-r <range>] [--message] [--onlyRDH]
+Usage: ./myrawreader.py -f <file.raw> [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [-o <offset>] [-r <range>] [-O <orbit>] [--message] [--onlyRDH] [--info]
 
 Options:
     -h --help                Display this help
@@ -12,15 +12,21 @@ Options:
     -e <excludedwords>       Comma separated list of GBT words not to print [default: none]
     -E <skippedwords>        Comma separated list of GBT words not to decode. Ovverrides -e [default: none]
     -l <lane>                Comma separated list of lanes to print [default: -1]
-    -i <feeid>               Comma separated list of feeids to print (0xABCD) [default: -1]
+    -i <feeid>               Comma separated list of feeids to decode (0x format). It uses RDH offset [default: -1]
     -o <offset>              Read from n-th byte (0x format) [default: 0x0]
     -r <range>               Interval of GBT words around the offset (format -n:+m) [default: 0:-1]
+    -O <orbit>               Comma seprated list of orbits to decode (0x format). It uses RDH offset [default: -1]
     --message                Skip data word without problems [default: False]
-    --onlyRDH                Read RDH only (skip words according to foreseen offset) [default: False]                     
+    --onlyRDH                Read RDH only (skip words according to RDH offset) [default: False]
+    --info                   Print info and exit [default: False]                     
 
 """
 
-#RDH,.,IHW,TDH,TDT,DDW,CDW,DIA,STA
+Info = """
+
+    Decoded GBT Words: RDH,.,IHW,TDH,TDT,DDW,CDW,DIA,STA
+    TRIGGER LIST:      {0: 'ORB', 1: 'HB', 2: 'HBr', 3: 'HC', 4:'PhT', 5:'PP', 6:'Cal', 7:'SOT', 8:'EOT', 9:'SOC', 10:'EOC', 11:'TF', 12:'FErst', 13: 'cont', 14: 'running'}
+"""
  
 import docopt
 import sys
@@ -33,11 +39,16 @@ print_only_message = bool(argv["--message"])
 excluded_words = str(argv["-e"])
 skipped_words = str(argv["-E"])
 lanes_to_print = [int (LL) for LL in str(argv["-l"]).split(",")]
-feeid_to_print = str(argv["-i"]).split(",")
+selected_feeid = [] if str(argv["-i"]) == '-1' else [int(fe,16) for fe in str(argv["-i"]).split(",")]
 myoffset = int(str(argv["-o"]),16)
 interval = [int(ir) for ir in str(argv["-r"]).split(":")]
-
+selected_orbit = [] if str(argv["-O"]) == '-1' else [int(orb,16) for orb in str(argv["-O"]).split(",")]
 onlyRDH = bool(argv["--onlyRDH"])
+printinfo = bool(argv["--info"])
+
+if printinfo:
+    print(Info)
+    exit()
 
 
 if skipped_words != 'none':
@@ -50,11 +61,9 @@ interval = [max(0,myoffset+16*interval[0]), int(filesize)-16 if interval[1]<0 el
 
 
 f = open(rawfilename,'rb')
-tmp = f.read(interval[0])
-word = f.read(16)
+GBTWORD = 0      #will loop over the file: written by getnext()
 
-GBTWORD=list(word)[0:16]
-OFFSET = '0x'+format(interval[0],'x').zfill(8)
+OFFSET = '-0x10'
 
 RDHMEM = ''
 
@@ -64,7 +73,7 @@ RDHfeeid = 0
 RDHsource = 0
 RDHoffset_new_packet = 0
 RDHbc = 0
-RDHorbit = 0
+RDHorbit = '0x0'
 RDHtrg = 0
 RDHpagecount = 0
 RDHstopbit = 0
@@ -77,6 +86,19 @@ RDHdw = 0
 
 PREV={'RDHpacketcounter':-1}
 
+def getnext(nbyte = 16):
+    global word
+    global GBTWORD
+    global OFFSET
+    word = f.read(nbyte)
+    GBTWORD = list(word)[0:nbyte]
+    OFFSET = '0x'+format(int(OFFSET,16)+nbyte,'x').zfill(8)
+    OFFSET = OFFSET.replace('0x-','-0x')
+    if int(OFFSET,16) > interval[1]:
+        exit()
+
+getnext(interval[0])
+getnext()
 
 def getbits(bit1, bit2, outtype = "d"): 
     #outtype = bit (s)tring / he(x) string / (0x) hex string / (d)ecimal / (dump) 
@@ -150,19 +172,7 @@ def readRDH(index):
         RDHdet_field = getbits(0,31)
         RDHparbit = getbits(32,47)
 
-    
 
-
-
-def getnext(nbyte = 16):
-    global word
-    global GBTWORD
-    global OFFSET
-    word = f.read(nbyte)
-    GBTWORD = list(word)[0:nbyte]
-    OFFSET = '0x'+format(int(OFFSET,16)+nbyte,'x').zfill(8)
-    if int(OFFSET,16) > interval[1]:
-        exit()
 
 
 def gettriggers(trg,outtype='list'): # list or string
@@ -270,7 +280,13 @@ def readword():
 
     return wordtype, comments, laneid
 
-    
+
+def isHBFselected():
+    global RDHfeeid
+    global RDHorbit
+    flag1 = len(selected_feeid) == 0 or int(RDHfeeid,16) in selected_feeid
+    flag2 = len(selected_orbit) == 0 or int(RDHorbit,16) in selected_orbit
+    return flag1 and flag2
 
 
 
@@ -278,6 +294,7 @@ rdhflag = True
 current_rdh_offset = -1
 offset_new_packet = -1
 comments = ''
+
 
 
 def myprint(dump, wtype, comments, laneid=-1):
@@ -295,7 +312,7 @@ def myprint(dump, wtype, comments, laneid=-1):
     flag = flag and not (wtype.replace(' ','').replace('|','') in excluded_words)
     if laneid >= 0 and -1 not in lanes_to_print and laneid not in lanes_to_print:
         flag = False
-    if "-1" not in feeid_to_print and RDHfeeid not in feeid_to_print:
+    if not isHBFselected():
         flag = False
     if flag:
         print('%s %s  %s'%(dump1, wtype1, comments1))
@@ -361,7 +378,7 @@ while word:
         
         
     #end of loop
-    if onlyRDH:
+    if onlyRDH or not isHBFselected():
         getnext(RDHoffset_new_packet - RDHsize)
     getnext()
 
