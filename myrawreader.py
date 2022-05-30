@@ -84,6 +84,8 @@ DHlinkid = 0
 RDHcruid = 0
 RDHdw = 0
 
+BufferRDHdump = []
+
 PREV={'RDHpacketcounter':-1}
 
 def getnext(nbyte = 16):
@@ -281,7 +283,7 @@ def readword():
     return wordtype, comments, laneid
 
 
-def isHBFselected():
+def isROFselected():
     global RDHfeeid
     global RDHorbit
     flag1 = len(selected_feeid) == 0 or int(RDHfeeid,16) in selected_feeid
@@ -302,21 +304,34 @@ def myprint(dump, wtype, comments, laneid=-1):
     global RDHorbit
     global RDHMEM
     global OFFSET
+    global BufferRDHdump
 
     dump1 = OFFSET+':   '+str(dump)
     if 'RDH' not in wtype:
         dump1 = dump1.replace('00-00-00-00-00-00-...','.....................')
     wtype1 = str(wtype) if len(str(wtype))==5 else ' '+str(wtype)+' '
     comments1 = '-' if comments=='' else str(comments)
+    toprint = '%s %s  %s'%(dump1, wtype1, comments1)
     justdata = wtype == ' . ' and comments[0] == '-'
     flag = not print_only_message or not justdata
     flag = flag and not (wtype.replace(' ','').replace('|','') in excluded_words)
     if laneid >= 0 and -1 not in lanes_to_print and laneid not in lanes_to_print:
         flag = False
-    if not isHBFselected():
-        flag = False
-    if flag:
-        print('%s %s  %s'%(dump1, wtype1, comments1))
+
+    if '|RDH' in wtype:
+        BufferRDHdump = []
+
+    if 'RDH' in wtype:
+        BufferRDHdump.append(toprint)
+
+    if 'RDH' not in wtype and flag and isROFselected():
+        print(toprint)
+
+    if 'RDH|' in wtype and isROFselected():
+        for rbuff in BufferRDHdump:
+            print(rbuff)
+       
+        
 
 
 #### MAIN LOOP
@@ -379,7 +394,7 @@ while word:
         
         
     #end of loop
-    if onlyRDH or not isHBFselected():
+    if onlyRDH or not isROFselected():
         getnext(RDHoffset_new_packet - RDHsize)
     getnext()
 
