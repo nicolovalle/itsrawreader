@@ -34,6 +34,7 @@ import sys
 import os
 import re
 
+import listorbit
 
 argv = docopt.docopt(__doc__,version="1.0")
 rawfilename = str(argv["-f"])
@@ -45,13 +46,18 @@ lanes_to_print = [int (LL) for LL in str(argv["-l"]).split(",")]
 selected_feeid = [] if str(argv["-i"]) == '-1' else [int(fe,16) for fe in str(argv["-i"]).split(",")]
 myoffset = int(str(argv["-o"]),16)
 interval = [int(ir) for ir in str(argv["-r"]).split(":")]
-selected_orbit = [] if str(argv["-O"]) == '-1' else [int(orb,16) for orb in str(argv["-O"]).split(",")]
+#selected_orbit = [] if str(argv["-O"]) == '-1' else [int(orb,16) for orb in str(argv["-O"]).split(",")]
 onlyRDH = bool(argv["--onlyRDH"])
 printinfo = bool(argv["--info"])
 
 if printinfo:
     print(Info)
     exit()
+
+if str(argv["-O"]) == "1":
+    selected_orbit = [int(orb,16) for orb in listorbit.LIST_OF_ORBITS]
+else:
+    selected_orbit = []
 
 
 if skipped_words != 'none':
@@ -311,7 +317,13 @@ def isROFselected():
     global RDHorbit
     flag1 = len(selected_feeid) == 0 or int(RDHfeeid,16) in selected_feeid
     flag2 = len(selected_orbit) == 0 or int(RDHorbit,16) in selected_orbit
-    return flag1 and flag2
+    #print(RDHfeeid, RDHfeeid[2])
+    if len(RDHfeeid) < 6:
+        flag3 = False
+    else:
+        flag3 = int(RDHfeeid[2]) == 5
+    #print(RDHfeeid, RDHfeeid[2], flag3, flag1 and flag2 and flag3)
+    return flag1 and flag2 and flag3
 
 
 
@@ -359,6 +371,9 @@ def myprint(dump, wtype, comments, laneid=-1):
 
 #### MAIN LOOP
 
+fout = open(rawfilename+"_table.txt","w")
+
+
 while word:
 
     comments=''
@@ -404,6 +419,9 @@ while word:
         comments="## detfield: %d . --%s--"%(RDHdet_field,gettriggers(RDHtrg,'string'))
         myprint(getbits(0,127,'dump')," RDH|",comments)
 
+        if isROFselected():
+            fout.write("A_,%s,B_,%s,C_,%d,D_,%d,E_,%d,F_,%d,G_,%d,H_,%d,I_,%d,J_,%d\n"%(RDHfeeid,RDHorbit,RDHpacketcounter,RDHpagecount,RDHstopbit,RDHoffset_new_packet,RDHlinkid,RDHcruid,RDHtrg,RDHbc))
+
 
         rdhflag = False
 
@@ -424,3 +442,4 @@ while word:
     
 
 
+fout.close()
