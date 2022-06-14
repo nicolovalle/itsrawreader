@@ -4,22 +4,23 @@
 
 myrawreader.py
 
-Usage: ./myrawreader.py -f <file.raw> [--fromdump] [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [-o <offset>] [-r <range>] [-O <orbit>] [--message] [--onlyRDH] [--info]
+Usage: ./myrawreader.py -f <file.raw> [--fromdump] [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [-o <offset>] [-r <range>] [-O <orbit>] [--message] [--onlyRDH] [--info] [--dumpbin]
 
 Options:
     -h --help                Display this help
     -f <file.raw>            Raw ITS data file
-    --fromdump                 Use text output of this script as input [default: False]
+    --fromdump               Use text output of this script as input [default: False]
     -e <excludedwords>       Comma separated list of GBT words not to print [default: none]
     -E <skippedwords>        Comma separated list of GBT words not to decode. Ovverrides -e [default: none]
     -l <lane>                Comma separated list of lanes to print [default: -1]
     -i <feeid>               Comma separated list of feeids to decode (0x format). It uses RDH offset [default: -1]
     -o <offset>              Read from n-th byte (0x format) [default: 0x0]
     -r <range>               Interval of GBT words around the offset (format -n:+m) [default: 0:-1]
-    -O <orbit>               Comma seprated list of orbits to decode (0x format). It uses RDH offset [default: -1]
+    -O <orbit>               Comma seprated list of orbits to decode (0x format) or range (0xABC:0xABC). It uses RDH offset [default: -1]
     --message                Skip data word without problems [default: False]
     --onlyRDH                Read RDH only (skip words according to RDH offset) [default: False]
-    --info                   Print info and exit [default: False]                     
+    --info                   Print info and exit [default: False]    
+    --dumpbin                Print ALPIDE words bit by bit [default: False]                 
 
 """
 
@@ -38,6 +39,9 @@ import re
 argv = docopt.docopt(__doc__,version="1.0")
 rawfilename = str(argv["-f"])
 fromdump = bool(argv["--fromdump"])
+if fromdump:
+    print("FROM-DUMP FEATURE STILL NOT WORKING. exit")
+    exit()
 print_only_message = bool(argv["--message"])
 excluded_words = str(argv["-e"])
 skipped_words = str(argv["-E"])
@@ -45,9 +49,16 @@ lanes_to_print = [int (LL) for LL in str(argv["-l"]).split(",")]
 selected_feeid = [] if str(argv["-i"]) == '-1' else [int(fe,16) for fe in str(argv["-i"]).split(",")]
 myoffset = int(str(argv["-o"]),16)
 interval = [int(ir) for ir in str(argv["-r"]).split(":")]
-selected_orbit = [] if str(argv["-O"]) == '-1' else [int(orb,16) for orb in str(argv["-O"]).split(",")]
+if ':' not in str(argv["-O"]):
+    selected_orbit = [] if str(argv["-O"]) == '-1' else [int(orb,16) for orb in str(argv["-O"]).split(",")]
+    selected_orbit_range = []
+else:
+    selected_orbit = []
+    selected_orbit_range = [int(orb,16) for orb in str(argv["-O"]).split(":")]
+    
 onlyRDH = bool(argv["--onlyRDH"])
 printinfo = bool(argv["--info"])
+dumpbin = bool(argv["--dumpbin"])
 
 if printinfo:
     print(Info)
@@ -150,6 +161,12 @@ def getbits(bit1, bit2, outtype = "d"):
         toret = ''
         for H in HexList:
             toret=toret+H.zfill(2)+"-"
+        return toret+'...'
+    elif outtype == 'dumpbin':
+        HexList = [format(B,'b') for B in GBTWORD]
+        toret = ''
+        for H in HexList:
+            toret=toret+H.zfill(8)+"-"
         return toret+'...'
             
 
@@ -310,7 +327,10 @@ def isROFselected():
     global RDHfeeid
     global RDHorbit
     flag1 = len(selected_feeid) == 0 or int(RDHfeeid,16) in selected_feeid
-    flag2 = len(selected_orbit) == 0 or int(RDHorbit,16) in selected_orbit
+    if len(selected_orbit_range) == 0:
+        flag2 = len(selected_orbit) == 0 or int(RDHorbit,16) in selected_orbit
+    else:
+        flag2 = selected_orbit_range[0] <= int(RDHorbit,16) <= selected_orbit_range[1]
     return flag1 and flag2
 
 
@@ -332,9 +352,11 @@ def myprint(dump, wtype, comments, laneid=-1):
     dump1 = OFFSET+':   '+str(dump)
     if 'RDH' not in wtype:
         dump1 = dump1.replace('00-00-00-00-00-00-...','.....................')
+        dump1 = dump1.replace('00000000-00000000-00000000-00000000-00000000-00000000-...','...')
     wtype1 = str(wtype) if len(str(wtype))==5 else ' '+str(wtype)+' '
     comments1 = '-' if comments=='' else str(comments)
-    toprint = '%s %s  %s'%(dump1, wtype1, comments1)
+    spacing = ' '*41+' ' if dumpbin and wtype != ' . ' else ''
+    toprint = '%s %s %s  %s'%(dump1, spacing, wtype1, comments1)
     justdata = wtype == ' . ' and comments[0] == '-'
     flag = not print_only_message or not justdata
     flag = flag and not (wtype.replace(' ','').replace('|','') in excluded_words)
@@ -364,7 +386,7 @@ while word:
     comments=''
 
     if rdhflag and getbits(0,7) != 6:
-        print("SKIPPING GBT WORD %d: NOT v6 HEADER? [to be implemented]"%(int(OFFSET,16)/16+1))
+        print("SKIPPIN GBT WORD %d: NOT v6 HEADER? [to be implemented]"%(int(OFFSET,16)/16+1))
         getnext()
         continue
 
@@ -411,7 +433,8 @@ while word:
         wordtype, comments, laneid = readword()
          
         if comments != 'skipped':
-            myprint(getbits(0,127,'dump'),wordtype,comments,laneid)       
+            dumpbinflag = dumpbin and wordtype == ' . '
+            myprint(getbits(0,127,'dumpbin' if dumpbinflag else 'dump'),wordtype,comments,laneid)       
             #print("%s  %s %s"%(getbits(0,79,'dump'),wordtype,comments))
         
         
