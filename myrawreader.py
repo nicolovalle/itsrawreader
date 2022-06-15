@@ -218,7 +218,7 @@ def readRDH(index):
 
 
 def gettriggers(trg,outtype='list'): # list or string
-    ctp12 = trg & 4095 
+    ctp12 = trg & 0xFFF 
     # 4095: 12'b1 --> selecting 12 lowest bits received from CTP
     trglist = {0: 'ORB', 1: 'HB', 2: 'HBr', 3: 'HC', 4:'PhT', 5:'PP', 6:'Cal', 7:'SOT', 8:'EOT', 9:'SOC', 10:'EOC', 11:'TF', 12:'FErst', 13: 'cont', 14: 'running'}
     if outtype == 'list':
@@ -307,10 +307,12 @@ def readword():
             laneid = int(str(b5))
             comments = comments+"-lane "+str(b5)
         elif marker == 2: #outer
-            OBlanesdict={'40': 0, '46': 6, '48': 7, '4e': 13, '50': 14, '56': 20, '58': 21, '5e': 27, \
-                         '43': 3,                   '4b': 10, '53': 17,                     '5b': 24, \
-                         '41': 1, '42': 2, '44': 4, '45': 5,  '49': 8,  '4a': 9,  '4c': 11, '4d': 12, \
-                         '51': 15,'52': 16,'54': 18,'55': 19, '59': 22, '5a': 23, '5c': 25, '5d': 26}
+
+            OBlanesdict={'40':0,  '41':1,  '42':2,  '43':3,  '44':4,  '45':5,  '46':6,\
+                         '48':7,  '49':8,  '4a':9,  '4b':10, '4c':11, '4d':12, '4e':13,\
+                         '50':14, '51':15, '52':16, '53':17, '54':18, '55':19, '56':20,\
+                         '58':21, '59':22, '5a':23, '5b':24, '5c':25, '5d':26, '5e':27}
+
             try:
                 laneid = OBlanesdict[getbits(72,79,'x')]
                 comments = comments+"-lane "+str(laneid)
@@ -326,6 +328,7 @@ def readword():
 def isROFselected():
     global RDHfeeid
     global RDHorbit
+    
     flag1 = len(selected_feeid) == 0 or int(RDHfeeid,16) in selected_feeid
     if len(selected_orbit_range) == 0:
         flag2 = len(selected_orbit) == 0 or int(RDHorbit,16) in selected_orbit
