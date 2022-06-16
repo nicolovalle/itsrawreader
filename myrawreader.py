@@ -4,7 +4,7 @@
 
 myrawreader.py
 
-Usage: ./myrawreader.py -f <file.raw> [--fromdump] [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [-o <offset>] [-r <range>] [-O <orbit>] [--message] [--onlyRDH] [--info] [--dumpbin]
+Usage: ./myrawreader.py -f <file.raw> [--fromdump] [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [-o <offset>] [-r <range>] [-O <orbit>] [--message] [--onlyRDH] [--info] [--dumpbin] [--printtable] [--silent]
 
 Options:
     -h --help                Display this help
@@ -20,14 +20,23 @@ Options:
     --message                Skip data word without problems [default: False]
     --onlyRDH                Read RDH only (skip words according to RDH offset) [default: False]
     --info                   Print info and exit [default: False]    
-    --dumpbin                Print ALPIDE words bit by bit [default: False]                 
+    --dumpbin                Print ALPIDE words bit by bit [default: False]  
+    --printtable             Print RDH summary on text file (name: myrr_table_<filename>.txt) [default: False]
+    --silent                 Do not print on terminal [default: False]
 
 """
 
 Info = """
 
+    v4.0 - 16Jun22
+
     Decoded GBT Words: RDH,.,IHW,TDH,TDT,DDW,CDW,DIA,STA
+
     TRIGGER LIST:      {0: 'ORB', 1: 'HB', 2: 'HBr', 3: 'HC', 4:'PhT', 5:'PP', 6:'Cal', 7:'SOT', 8:'EOT', 9:'SOC', 10:'EOC', 11:'TF', 12:'FErst', 13: 'cont', 14: 'running'}
+
+    TABLE FILE:
+    A_       B_       C_               D_           E_         F_                   G_        H_       I_     J_  
+    RDHfeeid,RDHorbit,RDHpacketcounter,RDHpagecount,RDHstopbit,RDHoffset_new_packet,RDHlinkid,RDHcruid,RDHtrg,RDHbc
 """
  
 import docopt
@@ -59,6 +68,11 @@ else:
 onlyRDH = bool(argv["--onlyRDH"])
 printinfo = bool(argv["--info"])
 dumpbin = bool(argv["--dumpbin"])
+printtable = bool(argv["--printtable"])
+silent = bool(argv["--silent"])
+
+if printtable:
+    table_file = open('myrr_table_'+rawfilename+'.txt','w')
 
 if printinfo:
     print(Info)
@@ -347,6 +361,9 @@ comments = ''
 
 def myprint(dump, wtype, comments, laneid=-1):
 
+    if silent:
+        return
+
     global RDHorbit
     global RDHMEM
     global OFFSET
@@ -430,6 +447,11 @@ while word:
         myprint(getbits(0,127,'dump')," RDH|",comments)
 
 
+        if printtable:
+            if isROFselected():
+                table_file.write("A_,%s,B_,%s,C_,%d,D_,%d,E_,%d,F_,%d,G_,%d,H_,%d,I_,%d,J_,%d\n"%(RDHfeeid,RDHorbit,RDHpacketcounter,RDHpagecount,RDHstopbit,RDHoffset_new_packet,RDHlinkid,RDHcruid,RDHtrg,RDHbc))
+
+
         rdhflag = False
 
     else:
@@ -450,3 +472,5 @@ while word:
     
 
 
+if printtable:
+    table_file.close()
