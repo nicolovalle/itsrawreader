@@ -54,7 +54,7 @@ if fromdump:
     print("FROM-DUMP FEATURE STILL NOT WORKING. exit")
     exit()
 print_only_message = bool(argv["--message"])
-excluded_words = str(argv["-e"])
+nonprinted_words = str(argv["-e"])
 skipped_words = str(argv["-E"])
 lanes_to_print = [int (LL) for LL in str(argv["-l"]).split(",")]
 selected_feeid = [] if str(argv["-i"]) == '-1' else [int(fe,16) for fe in str(argv["-i"]).split(",")]
@@ -82,7 +82,7 @@ if printinfo:
 
 
 if skipped_words != 'none':
-    excluded_words = skipped_words
+    nonprinted_words = skipped_words
 
 filesize = os.path.getsize(rawfilename)
 last_offset = '0x'+format(int(filesize)-16,'x').zfill(8)
@@ -391,7 +391,7 @@ def myprint(dump, wtype, comments, laneid=-1):
     toprint = '%s %s %s  %s'%(dump1, spacing, wtype1, comments1)
     justdata = wtype == ' . ' and comments[0] == '-'
     flag = not print_only_message or not justdata
-    flag = flag and not (wtype.replace(' ','').replace('|','') in excluded_words)
+    flag = flag and not (wtype.replace(' ','').replace('|','') in nonprinted_words)
     if laneid >= 0 and -1 not in lanes_to_print and laneid not in lanes_to_print:
         flag = False
 
@@ -403,18 +403,15 @@ def myprint(dump, wtype, comments, laneid=-1):
 
     if 'RDH' not in wtype and flag and isROFselected():
         print(toprint)
+        NPrintedWords[wtype] += 1
+        NPrintedWords['W/E/F/N!'] += '!' in toprint
 
-    if 'RDH|' in wtype and isROFselected():
+    if 'RDH|' in wtype and isROFselected() and flag:
         for rbuff in BufferRDHdump:
             print(rbuff)
-
-    if 'RDH|' in wtype:
+            NPrintedWords['W/E/F/N!'] += '!' in rbuff
         NPrintedWords['RDH'] += 1
         NPrintedWords['RDHstop' if RDHstopbit else 'RDHnostop'] += 1
-    elif 'RDH' not in wtype:
-        NPrintedWords[wtype] += 1
-    if '!' in toprint:
-        NPrintedWords['W/E/F/N!'] += 1
        
         
 
