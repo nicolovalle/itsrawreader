@@ -12,7 +12,7 @@ Options:
     --fromdump               Use text output of this script as input [default: False]
     -e <excludedwords>       Comma separated list of GBT words not to print [default: none]
     -E <skippedwords>        Comma separated list of GBT words not to decode. Ovverrides -e [default: none]
-    -l <lane>                Comma separated list of lanes to print [default: -1]
+    -l <lane>                Comma separated list of HW lanes to print [default: -1]
     -i <feeid>               Comma separated list of feeids to decode (0x format). It uses RDH offset [default: -1]
     -o <offset>              Read from n-th byte (0x format) [default: 0x0]
     -r <range>               Interval of GBT words around the offset (format -n:+m) [default: 0:-1]
@@ -21,22 +21,24 @@ Options:
     --onlyRDH                Read RDH only (skip words according to RDH offset) [default: False]
     --info                   Print info and exit [default: False]    
     --dumpbin                Print ALPIDE words bit by bit [default: False]  
-    --printtable             Print RDH summary on text file (name: myrr_table_<filename>.txt) [default: False]
-    --silent                 Do not print on terminal [default: False]
+    --printtable             Print RDH summary on text file (name: myrr_table_<filename>.txt). See --info. [default: False]
+    --silent                 Do not print [default: False]
 
 """
 
 Info = """
 
-    v4.0 - 16Jun22
+    v1.2 - 17Jun22
 
-    Decoded GBT Words: RDH,.,IHW,TDH,TDT,DDW,CDW,DIA,STA
+     * Decoded GBT Words: RDH,.,IHW,TDH,TDT,DDW,CDW,DIA,STA (to be used with -e, -E)
 
-    TRIGGER LIST:      {0: 'ORB', 1: 'HB', 2: 'HBr', 3: 'HC', 4:'PhT', 5:'PP', 6:'Cal', 7:'SOT', 8:'EOT', 9:'SOC', 10:'EOC', 11:'TF', 12:'FErst', 13: 'cont', 14: 'running'}
+     * TRIGGER LIST:      {0: 'ORB', 1: 'HB', 2: 'HBr', 3: 'HC', 4:'PhT', 5:'PP', 6:'Cal', 7:'SOT', 8:'EOT', 9:'SOC', 10:'EOC', 11:'TF', 12:'FErst', 13: 'cont', 14: 'running'}
 
-    TABLE FILE:
-    A_       B_       C_               D_           E_         F_                   G_        H_       I_     J_  
-    RDHfeeid,RDHorbit,RDHpacketcounter,RDHpagecount,RDHstopbit,RDHoffset_new_packet,RDHlinkid,RDHcruid,RDHtrg,RDHbc
+     * TABLE FILE:
+       A_       B_       C_               D_           E_         F_                   G_        H_       I_     J_  
+       RDHfeeid,RDHorbit,RDHpacketcounter,RDHpagecount,RDHstopbit,RDHoffset_new_packet,RDHlinkid,RDHcruid,RDHtrg,RDHbc
+
+     * APE Errors on APLIDE words not fully reliable. Raised as soon as an APE is in the first byte of GBT word.
 """
  
 import docopt
@@ -91,34 +93,49 @@ if not fromdump:
     f = open(rawfilename,'rb')
 else:
     f = open(rawfilename,'r')
+
+#global variables
 GBTWORD = [0,]      #will loop over the file: written by getnext()
 
 OFFSET = '-0x10'
 
-RDHMEM = ''
+RDHMEM = ''  #not decoded at the moment
 
 RDHversion = 0
 RDHsize = 0
-RDHfeeid = 0
+RDHfeeid = '0x0'
 RDHsource = 0
-RDHoffset_new_packet = 0
-RDHbc = 0
+RDHoffset_new_packet = -1
+RDHbc = -1
 RDHorbit = '0x0'
-RDHtrg = 0
+RDHtrg = -1
 RDHpagecount = 0
-RDHstopbit = 0
-RDHdet_field = 0
-RDHparbit = 0
+RDHstopbit = -1
+RDHdet_field = -1
+RDHparbit = -1
 RDHpacketcounter = -1
-RDHlinkid = 0
-RDHcruid = 0
-RDHdw = 0
+RDHlinkid = -1
+RDHcruid = -1
+RDHdw = -1
 
 BufferRDHdump = []
 
-PREV={'RDHpacketcounter':-1}
+# used to monitor variable changes
+PREV={'RDHpacketcounter':-1, 'RDHoffset_new_packet':-1}  
+
+# Summary
+NPrintedWords={'RDH':0, 'RDHstop':0, 'RDHnostop':0, 'TDH':0, 'TDT':0, 'IHW':0, 'TDT':0, 'DDW': 0, 'CDW':0, 'DIA':0, 'STA':0, ' . ':0, '???':0, 'W/E/F/N!':0}
+
+def Exit():
+
+    if max(NPrintedWords.values()) > 0:
+        print('\nSummary of printed words:')
+    for pw in NPrintedWords:
+        if NPrintedWords[pw]>0:
+            print("%s:%s %d"%(pw,' '*(12-len(pw)),NPrintedWords[pw]))
 
 def getnext(nbyte = 16):
+
     global word
     global GBTWORD
     global OFFSET
@@ -128,9 +145,8 @@ def getnext(nbyte = 16):
         word = ''
         for i in range(int(nbyte/16)):
             word = f.readline()
-        word = word.replace("-.....................","-00-00-00-00-00-00-...")
+        word = word.replace("-.................","-00-00-00-00-00-00")
                      
-        #print("aAAAAAAAA",word)
         if word[0:2] != '0x':
             return
         nonOFFSET = re.search(':.*',word).group(0)
@@ -138,26 +154,24 @@ def getnext(nbyte = 16):
         GBTWORD = re.search('.{2}-'*16+'...',word).group(0).replace('-...','').split('-')
         GBTWORD = [int(gbt,16) for gbt in GBTWORD]
     else:
-        word = f.read(nbyte)
-        #print(type(word))
-        GBTWORD = list(word)[0:nbyte]
-        #print(type(GBTWORD),GBTWORD)
+        word = f.read(nbyte)  # <class 'bytes'>
+        GBTWORD = list(word)[0:nbyte] # <class 'list'>
         OFFSET = '0x'+format(int(OFFSET,16)+nbyte,'x').zfill(8)
         OFFSET = OFFSET.replace('0x-','-0x')
     if int(OFFSET,16) > interval[1]:
-        exit()
+        Exit()
 
 getnext(interval[0])
 getnext()
 
 def getbits(bit1, bit2, outtype = "d"): 
-    #outtype = bit (s)tring / he(x) string / (0x) hex string / (d)ecimal / (dump) 
+    #outtype = bit (s)tring / he(x) string / (0x) hex string / (d)ecimal int / (dump) / (dumpbin)
+
     BitList = [format(B,'b').zfill(8) for B in GBTWORD]
     FullWord = ''
     for B in BitList:
         FullWord = B+FullWord
     FullWord=FullWord.strip()
-    #return FullWord
     Word = FullWord[len(FullWord)-bit2-1:len(FullWord)-bit1]
     if outtype == 's':
         return Word
@@ -175,13 +189,13 @@ def getbits(bit1, bit2, outtype = "d"):
         toret = ''
         for H in HexList:
             toret=toret+H.zfill(2)+"-"
-        return toret+'...'
+        return toret[:-1]
     elif outtype == 'dumpbin':
         HexList = [format(B,'b') for B in GBTWORD]
         toret = ''
         for H in HexList:
             toret=toret+H.zfill(8)+"-"
-        return toret+'...'
+        return toret[:-1]
             
 
 
@@ -231,9 +245,10 @@ def readRDH(index):
 
 
 
-def gettriggers(trg,outtype='list'): # list or string
-    ctp12 = trg & 0xFFF 
-    # 4095: 12'b1 --> selecting 12 lowest bits received from CTP
+def gettriggers(trg,outtype='list'): 
+    #outtype = 'list' or 'string'
+
+    ctp12 = trg & 0xFFF #selecting 12 lowest bits received from CTP
     trglist = {0: 'ORB', 1: 'HB', 2: 'HBr', 3: 'HC', 4:'PhT', 5:'PP', 6:'Cal', 7:'SOT', 8:'EOT', 9:'SOC', 10:'EOC', 11:'TF', 12:'FErst', 13: 'cont', 14: 'running'}
     if outtype == 'list':
         return [trglist[b] for b in trglist if bool( (trg>>b) & 1)]
@@ -241,12 +256,13 @@ def gettriggers(trg,outtype='list'): # list or string
         toret=''
         for b in trglist:
             if bool( (trg>>b) & 1):
-                toret=toret+' '+trglist[b]
-        return toret+' (ctp %d)'%(ctp12)
+                toret=toret+trglist[b]+' '
+        return toret+'(ctp %d)'%(ctp12)
         
     
     
 def readword():
+
     worddict={224:'IHW', 232:'TDH', 240:'TDT', 228:'DDW', 248:'CDW'}
     #ITS Header Word, Trigger Data Heder, Trigger Data Trailer, Diagnostic data word, Calibration Data Word
     marker = getbits(72,79)
@@ -340,6 +356,7 @@ def readword():
 
 
 def isROFselected():
+
     global RDHfeeid
     global RDHorbit
     
@@ -348,14 +365,8 @@ def isROFselected():
         flag2 = len(selected_orbit) == 0 or int(RDHorbit,16) in selected_orbit
     else:
         flag2 = selected_orbit_range[0] <= int(RDHorbit,16) <= selected_orbit_range[1]
+
     return flag1 and flag2
-
-
-
-rdhflag = True
-current_rdh_offset = -1
-offset_new_packet = -1
-comments = ''
 
 
 
@@ -368,14 +379,15 @@ def myprint(dump, wtype, comments, laneid=-1):
     global RDHMEM
     global OFFSET
     global BufferRDHdump
+    global NPrintedWords
 
     dump1 = OFFSET+':   '+str(dump)
     if 'RDH' not in wtype:
-        dump1 = dump1.replace('00-00-00-00-00-00-...','.....................')
-        dump1 = dump1.replace('00000000-00000000-00000000-00000000-00000000-00000000-...','...')
+        dump1 = dump1[:-54]+'-...' if len(dump1) > 9*16 else dump1[:-18]+'-'+'.'*17 
+
     wtype1 = str(wtype) if len(str(wtype))==5 else ' '+str(wtype)+' '
     comments1 = '-' if comments=='' else str(comments)
-    spacing = ' '*41+' ' if dumpbin and wtype != ' . ' else ''
+    spacing = ' '*45+' ' if dumpbin and wtype != ' . ' else ''
     toprint = '%s %s %s  %s'%(dump1, spacing, wtype1, comments1)
     justdata = wtype == ' . ' and comments[0] == '-'
     flag = not print_only_message or not justdata
@@ -395,39 +407,56 @@ def myprint(dump, wtype, comments, laneid=-1):
     if 'RDH|' in wtype and isROFselected():
         for rbuff in BufferRDHdump:
             print(rbuff)
+
+    if 'RDH|' in wtype:
+        NPrintedWords['RDH'] += 1
+        NPrintedWords['RDHstop' if RDHstopbit else 'RDHnostop'] += 1
+    elif 'RDH' not in wtype:
+        NPrintedWords[wtype] += 1
+    if '!' in toprint:
+        NPrintedWords['W/E/F/N!'] += 1
        
         
 
+rdhflag = True
+current_rdh_offset = -1
 
-#### MAIN LOOP
+####################################
+############ MAIN LOOP #############
+####################################
 
 while word:
 
     comments=''
 
     if rdhflag and getbits(0,7) != 6:
-        print("SKIPPIN GBT WORD %d: NOT v6 HEADER? [to be implemented]"%(int(OFFSET,16)/16+1))
+        print("SKIPPIN GBT WORD %d: NOT v6 HEADER? [E!] (To be improved)"%(int(OFFSET,16)/16+1))
         getnext()
         continue
 
-    
 
     #OPERATIONS WITH WORD
 
-    if (int(OFFSET,16)-current_rdh_offset) == offset_new_packet:
+    if (int(OFFSET,16)-current_rdh_offset) == PREV['RDHoffset_new_packet']:
         rdhflag = True
 
     
     if rdhflag:
         readRDH(1)
         current_rdh_offset = int(OFFSET,16)
-        offset_new_packet = RDHoffset_new_packet
+        PREV['RDHoffset_new_packet'] = RDHoffset_new_packet
+
+        ## checking packet counter jump
         comments="## fee %s . next: %d . pack_count: %d"%(RDHfeeid, RDHoffset_new_packet, RDHpacketcounter)
         if RDHpacketcounter > PREV['RDHpacketcounter']+1:
             comments = comments + ' (E! jump from %d to %d)'%(PREV['RDHpacketcounter'],RDHpacketcounter)
         elif RDHpacketcounter < PREV['RDHpacketcounter']+1:
             comments = comments + ' (N! jump from %d to %d)'%(PREV['RDHpacketcounter'],RDHpacketcounter)
         PREV['RDHpacketcounter'] = RDHpacketcounter
+        ##
+        if RDHsource != 32:
+            comments = comments + ' . E! Source=%d not ITS'%(RDHsource)
+
         myprint(getbits(0,127,'dump'),"|RDH ",comments)
         getnext()
 
@@ -437,13 +466,13 @@ while word:
         getnext()
     
         readRDH(3)
-        comments="## stop_bit: %d . page_count: %d"%(RDHstopbit, RDHpagecount)
+        comments="## stop: %d . page: %d . trg: %s"%(RDHstopbit, RDHpagecount,gettriggers(RDHtrg,'string'))
         myprint(getbits(0,127,'dump')," RDH ",comments)
         TriggerList = gettriggers(RDHtrg,'string')
         getnext()
 
         readRDH(4)
-        comments="## detfield: %d . --%s--"%(RDHdet_field,gettriggers(RDHtrg,'string'))
+        comments="## detfield: %d"%(RDHdet_field)
         myprint(getbits(0,127,'dump')," RDH|",comments)
 
 
@@ -460,14 +489,12 @@ while word:
         if comments != 'skipped':
             dumpbinflag = dumpbin and wordtype == ' . '
             myprint(getbits(0,127,'dumpbin' if dumpbinflag else 'dump'),wordtype,comments,laneid)       
-            #print("%s  %s %s"%(getbits(0,79,'dump'),wordtype,comments))
         
         
-        
-    #end of loop
     if onlyRDH or not isROFselected():
         getnext(RDHoffset_new_packet - RDHsize)
     getnext()
+    #end of loop
 
     
 
