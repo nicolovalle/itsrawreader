@@ -4,7 +4,7 @@
 
 myrawreader.py
 
-Usage: ./myrawreader.py -f <file.raw> [--fromdump] [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [-o <offset>] [-r <range>] [-O <orbit>] [--message] [--onlyRDH] [--info] [--dumpbin] [--printtable] [--silent]
+Usage: ./myrawreader.py -f <file.raw> [--fromdump] [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [-o <offset>] [-r <range>] [-O <orbit>] [--message] [--onlyRDH] [--info] [--dumpbin] [--printtable] [--silent] [-W <outbinfile>]
 
 Options:
     -h --help                Display this help
@@ -23,6 +23,7 @@ Options:
     --dumpbin                Print ALPIDE words bit by bit [default: False]  
     --printtable             Print RDH summary on text file (name: myrr_table_<filename>.txt). See --info. [default: False]
     --silent                 Do not print [default: False]
+    -W <outbinfile>          write binary file with the only printed words [default: none]
 
 """
 
@@ -50,9 +51,6 @@ import re
 argv = docopt.docopt(__doc__,version="1.0")
 rawfilename = str(argv["-f"])
 fromdump = bool(argv["--fromdump"])
-if fromdump:
-    print("FROM-DUMP FEATURE STILL NOT WORKING. exit")
-    exit()
 print_only_message = bool(argv["--message"])
 nonprinted_words = str(argv["-e"])
 skipped_words = str(argv["-E"])
@@ -72,9 +70,15 @@ printinfo = bool(argv["--info"])
 dumpbin = bool(argv["--dumpbin"])
 printtable = bool(argv["--printtable"])
 silent = bool(argv["--silent"])
+outbinfilepath = str(argv["-W"])
+
 
 if printtable:
     table_file = open('myrr_table_'+rawfilename+'.txt','w')
+
+if outbinfilepath != 'none':
+    outbinfile = open(outbinfilepath,"wb")
+    
 
 if printinfo:
     print(Info)
@@ -119,6 +123,7 @@ RDHcruid = -1
 RDHdw = -1
 
 BufferRDHdump = []
+BufferRDHGBTWORD = []
 
 # used to monitor variable changes
 PREV={'RDHpacketcounter':-1, 'RDHoffset_new_packet':-1}  
@@ -142,17 +147,24 @@ def getnext(nbyte = 16):
     if fromdump:
         if nbyte == 0:
             return
-        word = ''
-        for i in range(int(nbyte/16)):
+        word = '.'
+        i = 0
+        while i < int(nbyte/16) and word:
             word = f.readline()
-        word = word.replace("-.................","-00-00-00-00-00-00")
+            i += word[0:2] == '0x'
+        word = word.replace("-.................","-00"*6)
+        word = word.replace("-...","-00000000"*6)
                      
-        if word[0:2] != '0x':
+        if not word:
             return
         nonOFFSET = re.search(':.*',word).group(0)
         OFFSET = word.replace(nonOFFSET,'').replace('\n','')
-        GBTWORD = re.search('.{2}-'*16+'...',word).group(0).replace('-...','').split('-')
-        GBTWORD = [int(gbt,16) for gbt in GBTWORD]
+        try:
+            GBTWORD = re.search('.{2}-'*15+'.{2}',word).group(0).split('-')
+            GBTWORD = [int(gbt,16) for gbt in GBTWORD]
+        except:
+            GBTWORD = re.search('.{8}-'*15+'.{8}',word).group(0).split('-')
+            GBTWORD = [int(gbt,2) for gbt in GBTWORD]
     else:
         word = f.read(nbyte)  # <class 'bytes'>
         GBTWORD = list(word)[0:nbyte] # <class 'list'>
@@ -379,6 +391,7 @@ def myprint(dump, wtype, comments, laneid=-1):
     global RDHMEM
     global OFFSET
     global BufferRDHdump
+    global BufferRDHGBTWORD
     global NPrintedWords
 
     dump1 = OFFSET+':   '+str(dump)
@@ -400,16 +413,22 @@ def myprint(dump, wtype, comments, laneid=-1):
 
     if 'RDH' in wtype:
         BufferRDHdump.append(toprint)
+        BufferRDHGBTWORD.append(GBTWORD)
 
     if 'RDH' not in wtype and flag and isROFselected():
         print(toprint)
         NPrintedWords[wtype] += 1
         NPrintedWords['W/E/F/N!'] += '!' in toprint
+        if outbinfilepath != 'none':
+            outbinfile.write(bytearray(GBTWORD))
 
     if 'RDH|' in wtype and isROFselected() and flag:
         for rbuff in BufferRDHdump:
             print(rbuff)
             NPrintedWords['W/E/F/N!'] += '!' in rbuff
+        if outbinfilepath != 'none':
+            for wbuff in BufferRDHGBTWORD:
+                outbinfile.write(bytearray(wbuff))
         NPrintedWords['RDH'] += 1
         NPrintedWords['RDHstop' if RDHstopbit else 'RDHnostop'] += 1
        
