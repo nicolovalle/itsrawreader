@@ -11,7 +11,7 @@ Options:
     -f <file.raw>            Raw ITS data file
     --fromdump               Use text output of this script as input [default: False]
     -e <excludedwords>       Comma separated list of GBT words not to print [default: none]
-    -E <skippedwords>        Comma separated list of GBT words not to decode. Ovverrides -e [default: none]
+    -E <skippedwords>        Comma separated list of GBT words not to decode. Overrides -e [default: none]
     -l <lane>                Comma separated list of HW lanes to print [default: -1]
     -i <feeid>               Comma separated list of feeids to decode (0x format). It uses RDH offset [default: -1]
     -o <offset>              Read from n-th byte (0x format) [default: 0x0]
@@ -23,7 +23,7 @@ Options:
     --dumpbin                Print ALPIDE words bit by bit [default: False]  
     --printtable             Print RDH summary on text file (name: myrr_table_<filename>.txt). See --info. [default: False]
     --silent                 Do not print [default: False]
-    -W <outbinfile>          write binary file with the only printed words [default: none]
+    -W <outbinfile>          Write binary file with the only printed words [default: none]
 
 """
 
@@ -40,6 +40,11 @@ Info = """
        RDHfeeid,RDHorbit,RDHpacketcounter,RDHpagecount,RDHstopbit,RDHoffset_new_packet,RDHlinkid,RDHcruid,RDHtrg,RDHbc
 
      * APE Errors on APLIDE words not fully reliable. Raised as soon as an APE is in the first byte of GBT word.
+
+     * --fromdump
+       Be careful when using dumps together with options exploiting RDH offsets.
+       The offsets are fake if the dump is a skimmed version of the raw file.
+       
 """
  
 import docopt
@@ -47,10 +52,11 @@ import sys
 import os
 import re
 
-
 argv = docopt.docopt(__doc__,version="1.0")
 rawfilename = str(argv["-f"])
 fromdump = bool(argv["--fromdump"])
+if fromdump:
+    import numpy
 print_only_message = bool(argv["--message"])
 nonprinted_words = str(argv["-e"])
 skipped_words = str(argv["-E"])
@@ -58,6 +64,10 @@ lanes_to_print = [int (LL) for LL in str(argv["-l"]).split(",")]
 selected_feeid = [] if str(argv["-i"]) == '-1' else [int(fe,16) for fe in str(argv["-i"]).split(",")]
 myoffset = int(str(argv["-o"]),16)
 interval = [int(ir) for ir in str(argv["-r"]).split(":")]
+if fromdump and (myoffset > 0 or interval != [0,-1]):
+    #print('The offset will be considered w.r.t. the number of lines in the dumped file. Original offset will be ignored.')
+    print('Do not change offset while reading dumped file')
+    exit()
 if ':' not in str(argv["-O"]):
     selected_orbit = [] if str(argv["-O"]) == '-1' else [int(orb,16) for orb in str(argv["-O"]).split(",")]
     selected_orbit_range = []
@@ -90,13 +100,15 @@ if skipped_words != 'none':
 
 filesize = os.path.getsize(rawfilename)
 last_offset = '0x'+format(int(filesize)-16,'x').zfill(8)
-print("Processing file %s.\nSize: %d. Contains %d lines (up to offset = %s)"%(rawfilename,filesize,filesize/16,last_offset))
-interval = [max(0,myoffset+16*interval[0]), int(filesize)-16 if interval[1]<0 else min(int(filesize)-16, myoffset + interval[1]*16)] 
-
+print("Processing file "+rawfilename)
 if not fromdump:
-    f = open(rawfilename,'rb')
-else:
+    print("Size: %d. Contains %d lines (up to offset = %s)"%(filesize,filesize/16,last_offset))
+interval = [0,numpy.inf] if fromdump else [max(0,myoffset+16*interval[0]), int(filesize)-16 if interval[1]<0 else min(int(filesize)-16, myoffset + interval[1]*16)] 
+
+if fromdump:
     f = open(rawfilename,'r')
+else:
+    f = open(rawfilename,'rb')
 
 #global variables
 GBTWORD = [0,]      #will loop over the file: written by getnext()
@@ -125,6 +137,8 @@ RDHdw = -1
 BufferRDHdump = []
 BufferRDHGBTWORD = []
 
+IsRDHFromDump = False
+
 # used to monitor variable changes
 PREV={'RDHpacketcounter':-1, 'RDHoffset_new_packet':-1}  
 
@@ -138,12 +152,15 @@ def Exit():
     for pw in NPrintedWords:
         if NPrintedWords[pw]>0:
             print("%s:%s %d"%(pw,' '*(12-len(pw)),NPrintedWords[pw]))
+    exit()
 
 def getnext(nbyte = 16):
 
     global word
     global GBTWORD
     global OFFSET
+    global IsRDHFromDump
+    
     if fromdump:
         if nbyte == 0:
             return
@@ -156,8 +173,10 @@ def getnext(nbyte = 16):
         word = word.replace("-...","-00000000"*6)
                      
         if not word:
-            return
+            Exit()
+            
         nonOFFSET = re.search(':.*',word).group(0)
+        IsRDHFromDump = '|RDH' in word
         OFFSET = word.replace(nonOFFSET,'').replace('\n','')
         try:
             GBTWORD = re.search('.{2}-'*15+'.{2}',word).group(0).split('-')
@@ -410,6 +429,7 @@ def myprint(dump, wtype, comments, laneid=-1):
 
     if '|RDH' in wtype:
         BufferRDHdump = []
+        BufferRDHGBTWORD = []
 
     if 'RDH' in wtype:
         BufferRDHdump.append(toprint)
@@ -453,8 +473,10 @@ while word:
 
     #OPERATIONS WITH WORD
 
-    if (int(OFFSET,16)-current_rdh_offset) == PREV['RDHoffset_new_packet']:
+    if not fromdump and (int(OFFSET,16)-current_rdh_offset) == PREV['RDHoffset_new_packet']:
         rdhflag = True
+    elif fromdump:
+        rdhflag = IsRDHFromDump
 
     
     if rdhflag:
