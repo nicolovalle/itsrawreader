@@ -14,25 +14,6 @@ Options:
 
 """
 
-Info = """
-
-    v1.2 - 17Jun22
-
-     * Decoded GBT Words: RDH,.,IHW,TDH,TDT,DDW,CDW,DIA,STA (to be used with -e, -E)
-
-     * TRIGGER LIST:      {0: 'ORB', 1: 'HB', 2: 'HBr', 3: 'HC', 4:'PhT', 5:'PP', 6:'Cal', 7:'SOT', 8:'EOT', 9:'SOC', 10:'EOC', 11:'TF', 12:'FErst', 13: 'cont', 14: 'running'}
-
-     * TABLE FILE:
-       A_       B_       C_               D_           E_         F_                   G_        H_       I_     J_  
-       RDHfeeid,RDHorbit,RDHpacketcounter,RDHpagecount,RDHstopbit,RDHoffset_new_packet,RDHlinkid,RDHcruid,RDHtrg,RDHbc
-
-     * APE Errors on APLIDE words not fully reliable. Raised as soon as an APE is in the first byte of GBT word.
-
-     * --fromdump
-       Be careful when using dumps together with options exploiting RDH offsets.
-       The offsets are fake if the dump is a skimmed version of the raw file.
-       
-"""
  
 import docopt
 import sys
@@ -96,7 +77,10 @@ for OS in NEWWORDS:
     OFFSET = OS + 16
 
     
+totalsize = os.path.getsize(rawfilename)
 
+Data = rawfile.read(totalsize - OFFSET)
+outfile.write(Data)
 
 rawfile.close()
 outfile.close()

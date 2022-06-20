@@ -17,3 +17,13 @@ Usage:
 ```
 ./myrawreader.py --help
 ```
+
+---
+
+You can modify specific bytes in this way:
+
+```
+./myrawreader.py -f file.raw [any skimming option] > dump.txt
+# edit dump.txt by hand
+./embedfiles.py -r file.raw -d dump.txt [-o outfile.raw]
+```

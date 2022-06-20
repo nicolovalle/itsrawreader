@@ -4,7 +4,7 @@
 
 myrawreader.py
 
-Usage: ./myrawreader.py -f <file.raw> [--fromdump] [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [-o <offset>] [-r <range>] [-O <orbit>] [--message] [--onlyRDH] [--info] [--dumpbin] [--printtable] [--silent] [-W <outbinfile>]
+Usage: ./myrawreader.py -f <file.raw> [--fromdump] [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [-o <offset>] [-r <range>] [-O <orbit>] [--message] [--onlyRDH] [--info] [--dumpbin] [--printtable] [--silent] 
 
 Options:
     -h --help                Display this help
@@ -23,7 +23,6 @@ Options:
     --dumpbin                Print ALPIDE words bit by bit [default: False]  
     --printtable             Print RDH summary on text file (name: myrr_table_<filename>.txt). See --info. [default: False]
     --silent                 Do not print [default: False]
-    -W <outbinfile>          Write binary file with the only printed words [default: none]
 
 """
 
@@ -80,15 +79,11 @@ printinfo = bool(argv["--info"])
 dumpbin = bool(argv["--dumpbin"])
 printtable = bool(argv["--printtable"])
 silent = bool(argv["--silent"])
-outbinfilepath = str(argv["-W"])
 
 
 if printtable:
     table_file = open('myrr_table_'+rawfilename+'.txt','w')
 
-if outbinfilepath != 'none':
-    outbinfile = open(outbinfilepath,"wb")
-    
 
 if printinfo:
     print(Info)
@@ -135,7 +130,6 @@ RDHcruid = -1
 RDHdw = -1
 
 BufferRDHdump = []
-BufferRDHGBTWORD = []
 
 IsRDHFromDump = False
 
@@ -410,7 +404,6 @@ def myprint(dump, wtype, comments, laneid=-1):
     global RDHMEM
     global OFFSET
     global BufferRDHdump
-    global BufferRDHGBTWORD
     global NPrintedWords
 
     dump1 = OFFSET+':   '+str(dump)
@@ -429,26 +422,19 @@ def myprint(dump, wtype, comments, laneid=-1):
 
     if '|RDH' in wtype:
         BufferRDHdump = []
-        BufferRDHGBTWORD = []
 
     if 'RDH' in wtype:
         BufferRDHdump.append(toprint)
-        BufferRDHGBTWORD.append(GBTWORD)
 
     if 'RDH' not in wtype and flag and isROFselected():
         print(toprint)
         NPrintedWords[wtype] += 1
         NPrintedWords['W/E/F/N!'] += '!' in toprint
-        if outbinfilepath != 'none':
-            outbinfile.write(bytearray(GBTWORD))
 
     if 'RDH|' in wtype and isROFselected() and flag:
         for rbuff in BufferRDHdump:
             print(rbuff)
             NPrintedWords['W/E/F/N!'] += '!' in rbuff
-        if outbinfilepath != 'none':
-            for wbuff in BufferRDHGBTWORD:
-                outbinfile.write(bytearray(wbuff))
         NPrintedWords['RDH'] += 1
         NPrintedWords['RDHstop' if RDHstopbit else 'RDHnostop'] += 1
        
