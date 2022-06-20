@@ -319,7 +319,7 @@ def readword():
         continuation = 'continuation' if bool(getbits(14,14)) else ''
         nodata = 'nodata' if bool(getbits(13,13)) else ''
         internal = 'internal' if bool(getbits(12,12)) else ''
-        trgtype = getbits(0,11)
+        trgtype = gettriggers(getbits(0,11),'string')
         comments = "orbit %s . %s . %s . %s . trg %d"%(orbitid, continuation, nodata, internal,trgtype)
 
     ## Reading trigger data trailer
