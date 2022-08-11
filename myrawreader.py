@@ -137,7 +137,8 @@ IsRDHFromDump = False
 PREV={'RDHpacketcounter':-1, 'RDHoffset_new_packet':-1}  
 
 # Summary
-NPrintedWords={'RDH':0, 'RDHstop':0, 'RDHnostop':0, 'TDH':0, 'TDT':0, 'IHW':0, 'TDT':0, 'DDW': 0, 'CDW':0, 'DIA':0, 'STA':0, ' . ':0, '???':0, 'W/E/F/N!':0}
+NPrintedWords={'RDH':0, 'RDHstop':0, 'RDHnostop':0, 'TDH':0, 'TDHint':0, 'TDHint_nocont':0, 'TDHPhT':0, 'TDT':0, 'IHW':0, 'DDW': 0, 'CDW':0, 'DIA':0, 'STA':0, ' . ':0, '???':0, 'W/E/F/N!':0}
+PrintedOrbits = set()
 
 def Exit():
 
@@ -145,7 +146,10 @@ def Exit():
         print('\nSummary of printed words:')
     for pw in NPrintedWords:
         if NPrintedWords[pw]>0:
-            print("%s:%s %d"%(pw,' '*(12-len(pw)),NPrintedWords[pw]))
+            print("%s:%s %d"%(pw,' '*(15-len(pw)),NPrintedWords[pw]))
+    minorb = min(PrintedOrbits)
+    maxorb = max(PrintedOrbits)
+    print("#RDHOrbits:%s %d, form %s to %s . delta = %d"%(' '*(15-len('#RDHOrbits')),len(PrintedOrbits),minorb,maxorb,1+int(maxorb,16)-int(minorb,16)))
     exit()
 
 def getnext(nbyte = 16):
@@ -429,6 +433,15 @@ def myprint(dump, wtype, comments, laneid=-1):
     if 'RDH' not in wtype and flag and isROFselected():
         print(toprint)
         NPrintedWords[wtype] += 1
+        # THE FOLLOWING HAS TO BE IMPROVED. I WANT TO DISENTANGLE THE PRESENCE OF PHYSICS TRIGGER TO THE WRITTEN COMMENTS
+        if wtype == 'TDH':
+            if 'PhT' in comments:
+                NPrintedWords['TDHPhT'] += 1
+            if 'internal' in comments:
+                NPrintedWords['TDHint'] += 1
+                if not 'continuation' in comments:
+                    NPrintedWords['TDHint_nocont'] +=1 
+    
         NPrintedWords['W/E/F/N!'] += '!' in toprint
 
     if 'RDH|' in wtype and isROFselected() and flag:
@@ -437,7 +450,7 @@ def myprint(dump, wtype, comments, laneid=-1):
             NPrintedWords['W/E/F/N!'] += '!' in rbuff
         NPrintedWords['RDH'] += 1
         NPrintedWords['RDHstop' if RDHstopbit else 'RDHnostop'] += 1
-       
+        PrintedOrbits.add(RDHorbit) 
         
 
 rdhflag = True
