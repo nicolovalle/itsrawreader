@@ -22,13 +22,13 @@ Options:
     --info                   Print info and exit [default: False]    
     --dumpbin                Print ALPIDE words bit by bit [default: False]  
     --printtable             Print RDH summary on text file (name: myrr_table_<filename>.txt). See --info. [default: False]
-    --silent                 Do not print [default: False]
+    --silent                 Do not print word (but keep statistics on selected ones) [default: False]
 
 """
 
 Info = """
 
-    v1.2 - 17Jun22
+    v1.3.0 - 17Jun22
 
      * Decoded GBT Words: RDH,.,IHW,TDH,TDT,DDW,CDW,DIA,STA (to be used with -e, -E)
 
@@ -43,6 +43,9 @@ Info = """
      * --fromdump
        Be careful when using dumps together with options exploiting RDH offsets.
        The offsets are fake if the dump is a skimmed version of the raw file.
+
+     * list of words summarized at the end:
+       {'RDH':0, 'RDHstop':0, 'RDHnostop':0, 'TDH':0, 'TDHint':0, 'TDHint_nocont':0, 'TDHPhT':0, 'TDT':0, 'IHW':0, 'DDW': 0, 'CDW':0, 'DIA':0, 'STA':0, ' . ':0, '???':0, 'W/E/F/N!':0}
        
 """
  
@@ -147,9 +150,10 @@ def Exit():
     for pw in NPrintedWords:
         if NPrintedWords[pw]>0:
             print("%s:%s %d"%(pw,' '*(15-len(pw)),NPrintedWords[pw]))
-    minorb = min(PrintedOrbits)
-    maxorb = max(PrintedOrbits)
-    print("#RDHOrbits:%s %d, form %s to %s . delta = %d"%(' '*(15-len('#RDHOrbits')),len(PrintedOrbits),minorb,maxorb,1+int(maxorb,16)-int(minorb,16)))
+    NPrintedOrbits = len(PrintedOrbits)
+    minorb = min(PrintedOrbits) if NPrintedOrbits else '0x0'
+    maxorb = max(PrintedOrbits) if NPrintedOrbits else '0x0'
+    print("#RDHOrbits:%s %d, form %s to %s . delta = %d"%(' '*(15-len('#RDHOrbits')),NPrintedOrbits,minorb,maxorb,1+int(maxorb,16)-int(minorb,16)))
     exit()
 
 def getnext(nbyte = 16):
@@ -384,7 +388,7 @@ def readword():
     return wordtype, comments, laneid
 
 
-def isROFselected():
+def isHBFselected():
 
     global RDHfeeid
     global RDHorbit
@@ -401,8 +405,9 @@ def isROFselected():
 
 def myprint(dump, wtype, comments, laneid=-1):
 
-    if silent:
-        return
+    def Print(line):
+        if not silent:
+            print(line)
 
     global RDHorbit
     global RDHMEM
@@ -430,8 +435,8 @@ def myprint(dump, wtype, comments, laneid=-1):
     if 'RDH' in wtype:
         BufferRDHdump.append(toprint)
 
-    if 'RDH' not in wtype and flag and isROFselected():
-        print(toprint)
+    if 'RDH' not in wtype and flag and isHBFselected():
+        Print(toprint)
         NPrintedWords[wtype] += 1
         # THE FOLLOWING HAS TO BE IMPROVED. I WANT TO DISENTANGLE THE PRESENCE OF PHYSICS TRIGGER TO THE WRITTEN COMMENTS
         if wtype == 'TDH':
@@ -444,9 +449,9 @@ def myprint(dump, wtype, comments, laneid=-1):
     
         NPrintedWords['W/E/F/N!'] += '!' in toprint
 
-    if 'RDH|' in wtype and isROFselected() and flag:
+    if 'RDH|' in wtype and isHBFselected() and flag:
         for rbuff in BufferRDHdump:
-            print(rbuff)
+            Print(rbuff)
             NPrintedWords['W/E/F/N!'] += '!' in rbuff
         NPrintedWords['RDH'] += 1
         NPrintedWords['RDHstop' if RDHstopbit else 'RDHnostop'] += 1
@@ -514,7 +519,7 @@ while word:
 
 
         if printtable:
-            if isROFselected():
+            if isHBFselected():
                 table_file.write("A_,%s,B_,%s,C_,%d,D_,%d,E_,%d,F_,%d,G_,%d,H_,%d,I_,%d,J_,%d\n"%(RDHfeeid,RDHorbit,RDHpacketcounter,RDHpagecount,RDHstopbit,RDHoffset_new_packet,RDHlinkid,RDHcruid,RDHtrg,RDHbc))
 
 
@@ -528,7 +533,7 @@ while word:
             myprint(getbits(0,127,'dumpbin' if dumpbinflag else 'dump'),wordtype,comments,laneid)       
         
         
-    if onlyRDH or not isROFselected():
+    if onlyRDH or not isHBFselected():
         getnext(RDHoffset_new_packet - RDHsize)
     getnext()
     #end of loop
