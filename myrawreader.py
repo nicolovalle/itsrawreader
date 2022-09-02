@@ -26,13 +26,17 @@ Options:
 
 """
 
+Version = "v1.3.2 - 02-09-22"
+
 Info = """
 
-    v1.3.0 - 17Jun22
+     %s
 
      * Decoded GBT Words: RDH,.,IHW,TDH,TDT,DDW,CDW,DIA,STA (to be used with -e, -E)
 
      * TRIGGER LIST:      {0: 'ORB', 1: 'HB', 2: 'HBr', 3: 'HC', 4:'PhT', 5:'PP', 6:'Cal', 7:'SOT', 8:'EOT', 9:'SOC', 10:'EOC', 11:'TF', 12:'FErst', 13: 'cont', 14: 'running'}
+
+     * Detector fields: eventlist = {27: 'CLK', 26: 'TimeBase', 25: 'TimeBaseUnsync'}; lanestatuslist = {3: 'F', 2: 'E', 1: 'W', 0: 'MissingData'} 
 
      * TABLE FILE:
        A_       B_       C_               D_           E_         F_                   G_        H_       I_     J_  
@@ -47,7 +51,9 @@ Info = """
      * list of words summarized at the end:
        {'RDH':0, 'RDHstop':0, 'RDHnostop':0, 'TDH':0, 'TDHint':0, 'TDHint_nocont':0, 'TDHPhT':0, 'TDT':0, 'IHW':0, 'DDW': 0, 'CDW':0, 'DIA':0, 'STA':0, ' . ':0, '???':0, 'W/E/F/N!':0}
        
-"""
+"""%(Version)
+
+
  
 import docopt
 import sys
@@ -69,7 +75,7 @@ interval = [int(ir) for ir in str(argv["-r"]).split(":")]
 if fromdump and (myoffset > 0 or interval != [0,-1]):
     #print('The offset will be considered w.r.t. the number of lines in the dumped file. Original offset will be ignored.')
     print('Do not change offset while reading dumped file')
-    exit()
+    sys.exit()
 if ':' not in str(argv["-O"]):
     selected_orbit = [] if str(argv["-O"]) == '-1' else [int(orb,16) for orb in str(argv["-O"]).split(",")]
     selected_orbit_range = []
@@ -90,7 +96,7 @@ if printtable:
 
 if printinfo:
     print(Info)
-    exit()
+    sys.exit()
 
 
 if skipped_words != 'none':
@@ -98,6 +104,7 @@ if skipped_words != 'none':
 
 filesize = os.path.getsize(rawfilename)
 last_offset = '0x'+format(int(filesize)-16,'x').zfill(8)
+print(Version)
 print("Processing file "+rawfilename)
 if not fromdump:
     print("Size: %d. Contains %d lines (up to offset = %s)"%(filesize,filesize/16,last_offset))
@@ -154,7 +161,7 @@ def Exit():
     minorb = min(PrintedOrbits) if NPrintedOrbits else '0x0'
     maxorb = max(PrintedOrbits) if NPrintedOrbits else '0x0'
     print("#RDHOrbits:%s %d, form %s to %s . delta = %d"%(' '*(15-len('#RDHOrbits')),NPrintedOrbits,minorb,maxorb,1+int(maxorb,16)-int(minorb,16)))
-    exit()
+    sys.exit()
 
 def getnext(nbyte = 16):
 
@@ -292,6 +299,26 @@ def gettriggers(trg,outtype='list'):
                 toret=toret+trglist[b]+' '
         return toret+'(ctp %d)'%(ctp12)
         
+def getinfo_det_field(field):
+    toret = 'det_field: '
+    if field >> 28:
+        toret = toret + 'W! '
+    eventlist = {27: 'CLK', 26: 'TimeBase', 25: 'TimeBaseUnsync'}
+    lanestatuslist = {3: 'F', 2: 'E', 1: 'W', 0: 'MissingData'}
+    for b in eventlist:
+        if bool( (field>>b) & 1):
+            toret = toret + eventlist[b] + ' '
+    if field & 0b1111:
+        toret = toret + 'Lanes_'
+    for b in lanestatuslist:
+        if bool( (field>>b) & 1):
+            toret = toret+lanestatuslist[b]+'-'
+    if toret == 'det_field: ':
+        toret = toret + 'ok (' + str(field) + ')'
+    else:
+        toret = toret + '(' + str(field) + ')'
+    return toret
+
     
     
 def readword():
@@ -514,7 +541,7 @@ while word:
         getnext()
 
         readRDH(4)
-        comments="## detfield: %d"%(RDHdet_field)
+        comments="## %s"%(getinfo_det_field(RDHdet_field))
         myprint(getbits(0,127,'dump')," RDH|",comments)
 
 
