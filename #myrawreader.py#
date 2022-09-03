@@ -24,6 +24,7 @@ Options:
     --printtable             Print RDH summary on text file (name: myrr_table_<filename>.txt). See --info. [default: False]
     --silent                 Do not print word (but keep statistics on selected ones) [default: False]
 
+   
 """
 
 Version = "v1.3.2 - 02-09-22"
@@ -138,6 +139,7 @@ RDHpacketcounter = -1
 RDHlinkid = -1
 RDHcruid = -1
 RDHdw = -1
+DataLane = Dict()
 
 BufferRDHdump = []
 
@@ -161,7 +163,7 @@ def Exit():
     minorb = min(PrintedOrbits) if NPrintedOrbits else '0x0'
     maxorb = max(PrintedOrbits) if NPrintedOrbits else '0x0'
     print("#RDHOrbits:%s %d, form %s to %s . delta = %d"%(' '*(15-len('#RDHOrbits')),NPrintedOrbits,minorb,maxorb,1+int(maxorb,16)-int(minorb,16)))
-    exit()
+    sys.exit()
 
 def getnext(nbyte = 16):
 
@@ -257,8 +259,10 @@ def readRDH(index):
     global RDHpacketcounter
     global RDHcruid
     global RDHdw
+    global DataLane
 
     if index == 1:
+        DataLane.clear()
         RDHversion = getbits(0,7)
         RDHsize = getbits(8,15)
         RDHfeeid = getbits(16,31,'0x')
@@ -322,6 +326,7 @@ def getinfo_det_field(field):
     
     
 def readword():
+
 
     worddict={224:'IHW', 232:'TDH', 240:'TDT', 228:'DDW', 248:'CDW'}
     #ITS Header Word, Trigger Data Heder, Trigger Data Trailer, Diagnostic data word, Calibration Data Word
@@ -391,7 +396,7 @@ def readword():
         for E in error_messages:
             comments = comments+'E!:'+E+' '
 
-        # Reading inner barrel data    
+        # Reading lane id  
         b5 = getbits(72,76)
         if marker == 1: #inner
             laneid = int(str(b5))
@@ -409,6 +414,9 @@ def readword():
             except:
                 laneid = -999
                 comments = comments+"-lane ???"
+
+        # Reading chip data
+        
             
             
 
@@ -554,6 +562,9 @@ while word:
 
     else:
         wordtype, comments, laneid = readword()
+
+        if wordtype == ' . ':
+            cacca
          
         if comments != 'skipped':
             dumpbinflag = dumpbin and wordtype == ' . '

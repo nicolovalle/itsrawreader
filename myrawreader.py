@@ -139,6 +139,7 @@ RDHpacketcounter = -1
 RDHlinkid = -1
 RDHcruid = -1
 RDHdw = -1
+DataLane = Dict()
 
 BufferRDHdump = []
 
@@ -258,8 +259,10 @@ def readRDH(index):
     global RDHpacketcounter
     global RDHcruid
     global RDHdw
+    global DataLane
 
     if index == 1:
+        DataLane.clear()
         RDHversion = getbits(0,7)
         RDHsize = getbits(8,15)
         RDHfeeid = getbits(16,31,'0x')
