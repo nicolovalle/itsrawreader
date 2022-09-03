@@ -24,7 +24,6 @@ Options:
     --printtable             Print RDH summary on text file (name: myrr_table_<filename>.txt). See --info. [default: False]
     --silent                 Do not print word (but keep statistics on selected ones) [default: False]
 
-   
 """
 
 Version = "v1.3.2 - 02-09-22"
@@ -162,7 +161,7 @@ def Exit():
     minorb = min(PrintedOrbits) if NPrintedOrbits else '0x0'
     maxorb = max(PrintedOrbits) if NPrintedOrbits else '0x0'
     print("#RDHOrbits:%s %d, form %s to %s . delta = %d"%(' '*(15-len('#RDHOrbits')),NPrintedOrbits,minorb,maxorb,1+int(maxorb,16)-int(minorb,16)))
-    sys.exit()
+    exit()
 
 def getnext(nbyte = 16):
 
