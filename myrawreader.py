@@ -4,7 +4,7 @@
 
 myrawreader.py
 
-Usage: ./myrawreader.py -f <file.raw> [--fromdump] [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [-o <offset>] [-r <range>] [-O <orbit>] [--message] [--onlyRDH] [--info] [--dumpbin] [--printtable] [--silent] 
+Usage: ./myrawreader.py -f <file.raw> [--fromdump] [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [-o <offset>] [-r <range>] [-O <orbit>] [--onlyRDH] [--info] [--dumpbin] [--decodechips] [--printtable] [--silent] [--exit <strings>]
 
 Options:
     -h --help                Display this help
@@ -17,12 +17,13 @@ Options:
     -o <offset>              Read from n-th byte (0x format) [default: 0x0]
     -r <range>               Interval of GBT words around the offset (format -n:+m) [default: 0:-1]
     -O <orbit>               Comma seprated list of orbits to decode (0x format) or range (0xABC:0xABC). It uses RDH offset [default: -1]
-    --message                Skip data word without problems [default: False]
     --onlyRDH                Read RDH only (skip words according to RDH offset) [default: False]
     --info                   Print info and exit [default: False]    
     --dumpbin                Print ALPIDE words bit by bit [default: False]  
+    --decodechips            Decode chip data [default: False]
     --printtable             Print RDH summary on text file (name: myrr_table_<filename>.txt). See --info. [default: False]
     --silent                 Do not print word (but keep statistics on selected ones) [default: False]
+    --exit <strings>         Comma separated list. Exit if one of those strings is printed. Use @! for internal errors [default: none]
 
    
 """
@@ -39,11 +40,13 @@ Info = """
 
      * Detector fields: eventlist = {27: 'CLK', 26: 'TimeBase', 25: 'TimeBaseUnsync'}; lanestatuslist = {3: 'F', 2: 'E', 1: 'W', 0: 'MissingData'} 
 
+     * Chip data:
+       Idl: Idle,  bON/bOF: Busy ON/OFF, E!.: APE error 
+       CH: Chip Header, EF: Chip Empty Frame, DS: Data short, DL: Data long
+
      * TABLE FILE:
        A_       B_       C_               D_           E_         F_                   G_        H_       I_     J_  
        RDHfeeid,RDHorbit,RDHpacketcounter,RDHpagecount,RDHstopbit,RDHoffset_new_packet,RDHlinkid,RDHcruid,RDHtrg,RDHbc
-
-     * APE Errors on APLIDE words not fully reliable. Raised as soon as an APE is in the first byte of GBT word.
 
      * --fromdump
        Be careful when using dumps together with options exploiting RDH offsets.
@@ -66,7 +69,6 @@ rawfilename = str(argv["-f"])
 fromdump = bool(argv["--fromdump"])
 if fromdump:
     import numpy
-print_only_message = bool(argv["--message"])
 nonprinted_words = str(argv["-e"])
 skipped_words = str(argv["-E"])
 lanes_to_print = [int (LL) for LL in str(argv["-l"]).split(",")]
@@ -87,8 +89,13 @@ else:
 onlyRDH = bool(argv["--onlyRDH"])
 printinfo = bool(argv["--info"])
 dumpbin = bool(argv["--dumpbin"])
+decodechips = bool(argv["--decodechips"])
 printtable = bool(argv["--printtable"])
 silent = bool(argv["--silent"])
+if str(argv["--exit"]) == 'none':
+    exitatstring = []
+else:
+    exitatstring = str(argv["--exit"]).split(',')
 
 
 if printtable:
@@ -164,6 +171,10 @@ def Exit():
     maxorb = max(PrintedOrbits) if NPrintedOrbits else '0x0'
     print("#RDHOrbits:%s %d, form %s to %s . delta = %d"%(' '*(15-len('#RDHOrbits')),NPrintedOrbits,minorb,maxorb,1+int(maxorb,16)-int(minorb,16)))
     sys.exit()
+
+def StringExit():
+    print('Exit: exit-at-string requested')
+    Exit()
 
 def getnext(nbyte = 16):
 
@@ -418,17 +429,23 @@ def readword():
                 comments = comments+"-lane ???"
 
         # Reading data chip
-        chip_word_list = []
-        ib = 0
-        if laneid in DataLane:
-            ib = DataLane[laneid][0]*8
-            chip_word_list = ['<  ',]*DataLane[laneid][0]
-            DataLane.pop(laneid)
-        if True:
+        if decodechips:
+            chip_word_list = []
+            ib = 0
+            if laneid in DataLane:
+                ib = DataLane[laneid][0]*8
+                chip_word_list = ['<  ',]*DataLane[laneid][0]
+                DataLane.pop(laneid)
             while ib <= 64:
-                by = getbits(ib,ib+7,'x')
+                by = getbits(ib,ib+7,'x').zfill(2)
                 ## words with length = 1 byte
-                if by[0] == 'f':
+                if by == '00':
+                    if laneid in DataLane:
+                        chip_word_list.append('@!<')
+                    else:
+                        chip_word_list.append('-- ')
+                    ib += 8
+                elif by[0] == 'f':
                     if by[1] == 'f':
                         chip_word_list.append('Idl')
                     elif by[1] == '1':
@@ -438,56 +455,61 @@ def readword():
                     elif by in error_dict:
                         chip_word_list.append('E!.')
                     else:
-                        chip_word_list.append('F!?')
+                        chip_word_list.append('@!?')
                     ib += 8
-                if by[0] == 'b':  # chip trailer
-                    chip_word_list.append('CT'+getbits(ib,ib+3,'s'))
+                elif by[0] == 'b':  # chip trailer
+                    #chip_word_list.append('CT'+getbits(ib,ib+3,'s'))
+                    chip_word_list.append('CT ')
                     ib += 8
-                if by[0] == 'c' or by[0] == 'd': # reagion header
-                    chip_word_list.append('RH'+getbits(ib,ib+4,'d'))
+                elif by[0] == 'c' or by[0] == 'd': # reagion header
+                    #chip_word_list.append('RH'+str(getbits(ib,ib+4,'d')))
+                    chip_word_list.append('RH ')
                     ib += 8
                 ## words with length = 2 bytes
-                if by[0] == 'a': # chip header
+                elif by[0] == 'a': # chip header
                     if (ib < 64):
                         chip_word_list.append('CH ')
-                        chip_word_list.append('__ ')
+                        chip_word_list.append('++ ')
                     else:
                         chip_word_list.append('CH>')
                         DataLane[laneid]=[1,'CH']
                     ib += 16
-                if by[0] == 'e': # chip empty frame
+                elif by[0] == 'e': # chip empty frame
                     if (ib < 64):
                         chip_word_list.append('EF ')
-                        chip_word_list.append('__ ')
+                        chip_word_list.append('++ ')
                     else:
                         chip_word_list.append('EF>')
                         DataLane[laneid]=[1,'EF']
                     ib += 16
-                if by[0] in ['4','5','6','7']: # data short
+                elif by[0] in ['4','5','6','7']: # data short
                     if (ib < 64):
                         chip_word_list.append('DS ')
-                        chip_word_list.append('__ ')
+                        chip_word_list.append('++ ')
                     else:
                         chip_word_list.append('DS>')
                         DataLane[laneid]=[1,'DS']
                     ib += 16
                 ## words with length = 3 bytes
-                if by[0] in ['0','1','2','3']:
+                elif by[0] in ['0','1','2','3']:
                     if (ib < 56):
                         chip_word_list.append('DL ')
-                        chip_word_list.append('__ ')
-                        chip_word_list.append('__ ')
+                        chip_word_list.append('++ ')
+                        chip_word_list.append('++ ')
                     elif (ib < 64):
                         chip_word_list.append('DL ')
-                        chip_word_list.append('__>')
+                        chip_word_list.append('++>')
                         DataLane[laneid]=[1,'DL']
                     else:
                         chip_word_list.append('DL>>')
                         DataLane[laneid]=[2,'DL']
-                    ib = ib + 24
-        comments += ' '*(4-len(str(laneid)))
-        for WW in chip_word_list:
-            comments = comments +  WW + ' '
+                    ib += 24
+                else:
+                    chip_word_list.append('@! ')
+                    ib += 8
+            comments += ' '*(4-len(str(laneid)))
+            for WW in chip_word_list:
+                comments = comments +  WW + ' '
             
                 
 
@@ -523,6 +545,10 @@ def isHBFselected():
 def myprint(dump, wtype, comments, laneid=-1):
 
     def Print(line):
+        for sext in exitatstring:
+            if sext in line:
+                print(line)
+                StringExit()
         if not silent:
             print(line)
 
@@ -540,9 +566,7 @@ def myprint(dump, wtype, comments, laneid=-1):
     comments1 = '-' if comments=='' else str(comments)
     spacing = ' '*45+' ' if dumpbin and wtype != ' . ' else ''
     toprint = '%s %s %s  %s'%(dump1, spacing, wtype1, comments1)
-    justdata = wtype == ' . ' and comments[0] == '-'
-    flag = not print_only_message or not justdata
-    flag = flag and not (wtype.replace(' ','').replace('|','') in nonprinted_words)
+    flag = not (wtype.replace(' ','').replace('|','') in nonprinted_words)
     if laneid >= 0 and -1 not in lanes_to_print and laneid not in lanes_to_print:
         flag = False
 
