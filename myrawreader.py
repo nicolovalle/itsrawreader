@@ -27,7 +27,7 @@ Options:
    
 """
 
-Version = "v1.3.2 - 02-09-22"
+Version = "v2.0.0 - 04-09-22"
 
 Info = """
 
@@ -139,7 +139,7 @@ RDHpacketcounter = -1
 RDHlinkid = -1
 RDHcruid = -1
 RDHdw = -1
-DataLane = Dict()
+DataLane = dict()
 
 BufferRDHdump = []
 
@@ -327,6 +327,8 @@ def getinfo_det_field(field):
     
 def readword():
 
+    global DataLane
+
     worddict={224:'IHW', 232:'TDH', 240:'TDT', 228:'DDW', 248:'CDW'}
     #ITS Header Word, Trigger Data Heder, Trigger Data Trailer, Diagnostic data word, Calibration Data Word
     marker = getbits(72,79)
@@ -363,6 +365,7 @@ def readword():
 
     ## Reading trigger data trailer
     if wordtype == 'TDT':
+        DataLane.clear()
         violation = 'start_viol' if bool(getbits(67,67)) else ''
         timeout = 'timeout' if bool(getbits(65,65)) else ''
         packet_done = 'packet_done' if bool(getbits(64,64)) else ''
@@ -387,15 +390,15 @@ def readword():
         #scan_words = [getbits(8*i,8*i+7,'x') for i in range(9)]
         # only first byte is an errr message ??
         scan_words = [getbits(8*i,8*i+7,'x') for i in range(1)]
-        error_dict = {'f4': 'Detector timeout', 'f5': '8b10b OoT', 'f6': 'Alp. protocol error', 'f7': 'Lane FIFO overflow', \
-                      'f8': 'FSM eror', 'f9': 'Pending det-events limit', 'fA': 'Pending lane-events limit', \
-                      'fb': 'Lane protocol error', 'fe': '8b10b in non fatal byte'}
+        error_dict = {'f2': 'Strip start', 'f4': 'Detector timeout', 'f5': '8b10b OoT', 'f6': 'Alp. protocol error', 'f7': 'Lane FIFO overflow', \
+                      'f8': 'FSM eror', 'f9': 'Pending det-events limit', 'fa': 'Pending lane-events limit', \
+                      'fb': 'Lane protocol error', 'fc': 'Rate missing trig', 'fd': 'Pe data missing', 'fe': '8b10b in non fatal byte'}
         error_messages = [error_dict[s] for s in scan_words if s in error_dict]
             
-        for E in error_messages:
-            comments = comments+'E!:'+E+' '
+        #for E in error_messages:
+        #    comments = comments+'E!:'+E+' '
 
-        # Reading inner barrel data    
+        # Reading lane id
         b5 = getbits(72,76)
         if marker == 1: #inner
             laneid = int(str(b5))
@@ -413,6 +416,89 @@ def readword():
             except:
                 laneid = -999
                 comments = comments+"-lane ???"
+
+        # Reading data chip
+        chip_word_list = []
+        ib = 0
+        if laneid in DataLane:
+            ib = DataLane[laneid][0]*8
+            chip_word_list = ['<  ',]*DataLane[laneid][0]
+            DataLane.pop(laneid)
+        if True:
+            while ib <= 64:
+                by = getbits(ib,ib+7,'x')
+                ## words with length = 1 byte
+                if by[0] == 'f':
+                    if by[1] == 'f':
+                        chip_word_list.append('Idl')
+                    elif by[1] == '1':
+                        chip_word_list.append('bON')
+                    elif by[1] == '0':
+                        chip_word_list.append('bOF')
+                    elif by in error_dict:
+                        chip_word_list.append('E!.')
+                    else:
+                        chip_word_list.append('F!?')
+                    ib += 8
+                if by[0] == 'b':  # chip trailer
+                    chip_word_list.append('CT'+getbits(ib,ib+3,'s'))
+                    ib += 8
+                if by[0] == 'c' or by[0] == 'd': # reagion header
+                    chip_word_list.append('RH'+getbits(ib,ib+4,'d'))
+                    ib += 8
+                ## words with length = 2 bytes
+                if by[0] == 'a': # chip header
+                    if (ib < 64):
+                        chip_word_list.append('CH ')
+                        chip_word_list.append('__ ')
+                    else:
+                        chip_word_list.append('CH>')
+                        DataLane[laneid]=[1,'CH']
+                    ib += 16
+                if by[0] == 'e': # chip empty frame
+                    if (ib < 64):
+                        chip_word_list.append('EF ')
+                        chip_word_list.append('__ ')
+                    else:
+                        chip_word_list.append('EF>')
+                        DataLane[laneid]=[1,'EF']
+                    ib += 16
+                if by[0] in ['4','5','6','7']: # data short
+                    if (ib < 64):
+                        chip_word_list.append('DS ')
+                        chip_word_list.append('__ ')
+                    else:
+                        chip_word_list.append('DS>')
+                        DataLane[laneid]=[1,'DS']
+                    ib += 16
+                ## words with length = 3 bytes
+                if by[0] in ['0','1','2','3']:
+                    if (ib < 56):
+                        chip_word_list.append('DL ')
+                        chip_word_list.append('__ ')
+                        chip_word_list.append('__ ')
+                    elif (ib < 64):
+                        chip_word_list.append('DL ')
+                        chip_word_list.append('__>')
+                        DataLane[laneid]=[1,'DL']
+                    else:
+                        chip_word_list.append('DL>>')
+                        DataLane[laneid]=[2,'DL']
+                    ib = ib + 24
+        comments += ' '*(4-len(str(laneid)))
+        for WW in chip_word_list:
+            comments = comments +  WW + ' '
+            
+                
+
+                
+                    
+                        
+                        
+                                              
+                
+                    
+        
             
             
 
