@@ -319,7 +319,7 @@ def getinfo_det_field(field):
     toret = 'det_field: '
     if field >> 28:
         toret = toret + 'W! '
-    eventlist = {27: 'CLK', 26: 'TimeBase', 25: 'TimeBaseUnsync'}
+    eventlist = {26: 'CLK', 25: 'TimeBase', 24: 'TimeBaseUnsync'}
     lanestatuslist = {3: 'F', 2: 'E', 1: 'W', 0: 'MissingData'}
     for b in eventlist:
         if bool( (field>>b) & 1):
