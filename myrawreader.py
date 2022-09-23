@@ -28,7 +28,7 @@ Options:
    
 """
 
-Version = "v2.0.0 - 04-09-22"
+Version = "v2.0.1 - 23-09-22"
 
 Info = """
 
@@ -167,9 +167,10 @@ def Exit():
         if NPrintedWords[pw]>0:
             print("%s:%s %d"%(pw,' '*(15-len(pw)),NPrintedWords[pw]))
     NPrintedOrbits = len(PrintedOrbits)
-    minorb = min(PrintedOrbits) if NPrintedOrbits else '0x0'
-    maxorb = max(PrintedOrbits) if NPrintedOrbits else '0x0'
-    print("#RDHOrbits:%s %d, form %s to %s . delta = %d"%(' '*(15-len('#RDHOrbits')),NPrintedOrbits,minorb,maxorb,1+int(maxorb,16)-int(minorb,16)))
+    minorb = min([int(st,16) for st in PrintedOrbits]) if NPrintedOrbits else 0
+    maxorb = max([int(st,16) for st in PrintedOrbits]) if NPrintedOrbits else 0
+    
+    print("#RDHOrbits:%s %d, form %s to %s . delta = %d"%(' '*(15-len('#RDHOrbits')),NPrintedOrbits,hex(minorb),hex(maxorb),maxorb-minorb))
     sys.exit()
 
 def StringExit():

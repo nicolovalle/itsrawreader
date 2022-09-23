@@ -27,3 +27,18 @@ You can modify specific bytes in this way:
 # edit dump.txt by hand
 ./embedfiles.py -r file.raw -d dump.txt [-o outfile.raw]
 ```
+
+---
+---
+
+To make executable:
+
+```
+pip3 install pyinstaller
+```
+
+```
+pyinstaller -F myrawreader.py
+rm -fr build/
+```
+
