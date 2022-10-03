@@ -4,7 +4,7 @@
 
 myrawreader.py
 
-Usage: ./myrawreader.py -f <file.raw> [--fromdump] [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [-o <offset>] [-r <range>] [-O <orbit>] [--onlyRDH] [--info] [--dumpbin] [--decodechips] [--printtable] [--silent] [--exit <strings>]
+Usage: ./myrawreader.py -f <file.raw> [--fromdump] [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [-o <offset>] [-r <range>] [-O <orbit>] [--onlyRDH] [--info] [--dumpbin] [--decodechips] [--printtable] [--silent] [--stop <strings>]
 
 Options:
     -h --help                Display this help
@@ -23,12 +23,12 @@ Options:
     --decodechips            Decode chip data [default: False]
     --printtable             Print RDH summary on text file (name: myrr_table_<filename>.txt). See --info. [default: False]
     --silent                 Do not print word (but keep statistics on selected ones) [default: False]
-    --exit <strings>         Comma separated list. Exit if one of those strings is printed. Use @! for internal errors [default: none]
+    --stop <strings>         Comma separated list. Stop if one of those strings is printed. Use @! for internal errors [default: none]
 
    
 """
 
-Version = "v2.0.1 - 23-09-22"
+Version = "v2.0.2 - 03-10-22"
 
 Info = """
 
@@ -92,10 +92,10 @@ dumpbin = bool(argv["--dumpbin"])
 decodechips = bool(argv["--decodechips"])
 printtable = bool(argv["--printtable"])
 silent = bool(argv["--silent"])
-if str(argv["--exit"]) == 'none':
-    exitatstring = []
+if str(argv["--stop"]) == 'none':
+    stopatstring = []
 else:
-    exitatstring = str(argv["--exit"]).split(',')
+    stopatstring = str(argv["--stop"]).split(',')
 
 
 if printtable:
@@ -173,9 +173,10 @@ def Exit():
     print("#RDHOrbits:%s %d, form %s to %s . delta = %d"%(' '*(15-len('#RDHOrbits')),NPrintedOrbits,hex(minorb),hex(maxorb),maxorb-minorb))
     sys.exit()
 
-def StringExit():
-    print('Exit: exit-at-string requested')
-    Exit()
+def StringStop():
+    exitword = input('Enter to continue; any character to exit: ')
+    if exitword != '':
+        Exit()
 
 def getnext(nbyte = 16):
 
@@ -395,8 +396,14 @@ def readword():
         else:
             violation = 'violation' if bool(getbits(67,67)) else ''
             timeout = 'timeout' if bool(getbits(65,65)) else ''
-            error_summ = 'Lanes in W/E/F' if getbits(0,55,'s').count('1')>0 else 'lanes ok'
-            comments = '%s . %s . %s'%(violation, timeout, error_summ)
+            if getbits(0,55,'s').count('1') > 0:
+                error_summ = 'Lanes in W/E/F'
+                statusflag = ['ok','W!','E!','F!']
+                bad_lanes = [ "%d:%s"%(il,statusflag[getbits(2*il,2*il+1)]) for il in range(28) if getbits(2*il,2*il+1) ]
+            else:
+                error_summ = 'Lanes ok '
+                bad_lanes = []
+            comments = '%s . %s . %s %s'%(violation, timeout, error_summ, bad_lanes)
         
     if wordtype == ' . ':
         #scan_words = [getbits(8*i,8*i+7,'x') for i in range(9)]
@@ -546,10 +553,10 @@ def isHBFselected():
 def myprint(dump, wtype, comments, laneid=-1):
 
     def Print(line):
-        for sext in exitatstring:
+        for sext in stopatstring:
             if sext in line:
                 print(line)
-                StringExit()
+                StringStop()
         if not silent:
             print(line)
 
@@ -611,7 +618,7 @@ while word:
 
     comments=''
 
-    if rdhflag and getbits(0,7) != 6:
+    if rdhflag and ( getbits(0,7) != 6 or getbits(8,15) != 64):
         print("SKIPPIN GBT WORD %d: NOT v6 HEADER? [E!] (To be improved)"%(int(OFFSET,16)/16+1))
         getnext()
         continue
@@ -632,7 +639,7 @@ while word:
 
         ## checking packet counter jump
         comments="## fee %s . next: %d . pack_count: %d"%(RDHfeeid, RDHoffset_new_packet, RDHpacketcounter)
-        if RDHpacketcounter > PREV['RDHpacketcounter']+1:
+        if RDHpacketcounter > PREV['RDHpacketcounter']+1 and PREV['RDHpacketcounter'] != -1:
             comments = comments + ' (E! jump from %d to %d)'%(PREV['RDHpacketcounter'],RDHpacketcounter)
         elif RDHpacketcounter < PREV['RDHpacketcounter']+1:
             comments = comments + ' (N! jump from %d to %d)'%(PREV['RDHpacketcounter'],RDHpacketcounter)
