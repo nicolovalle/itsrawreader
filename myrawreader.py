@@ -28,7 +28,7 @@ Options:
    
 """
 
-Version = "v2.0.2 - 03-10-22"
+Version = "v2.0.3 - 06-10-22"
 
 Info = """
 
@@ -140,6 +140,7 @@ RDHorbit = '0x0'
 RDHtrg = -1
 RDHpagecount = 0
 RDHstopbit = -1
+RDHTFtrg = 0
 RDHdet_field = -1
 RDHparbit = -1
 RDHpacketcounter = -1
@@ -156,8 +157,9 @@ IsRDHFromDump = False
 PREV={'RDHpacketcounter':-1, 'RDHoffset_new_packet':-1}  
 
 # Summary
-NPrintedWords={'RDH':0, 'RDHstop':0, 'RDHnostop':0, 'TDH':0, 'TDHint':0, 'TDHint_nocont':0, 'TDHPhT':0, 'TDT':0, 'IHW':0, 'DDW': 0, 'CDW':0, 'DIA':0, 'STA':0, ' . ':0, '???':0, 'W/E/F/N!':0}
+NPrintedWords={'RDH':0, 'RDHstop':0, 'RDHnostop':0, 'RDHTFstop':0, 'TDH':0, 'TDHint':0, 'TDHint_nocont':0, 'TDHPhT':0, 'TDT':0, 'IHW':0, 'DDW': 0, 'CDW':0, 'DIA':0, 'STA':0, ' . ':0, '???':0, 'W/E/F/N!':0}
 PrintedOrbits = set()
+PrintedFeeIDs = set()
 
 def Exit():
 
@@ -171,6 +173,7 @@ def Exit():
     maxorb = max([int(st,16) for st in PrintedOrbits]) if NPrintedOrbits else 0
     
     print("#RDHOrbits:%s %d, form %s to %s . delta = %d"%(' '*(15-len('#RDHOrbits')),NPrintedOrbits,hex(minorb),hex(maxorb),maxorb-minorb))
+    print("#FeeIDs:%s %d, %s"%(' '*(15-len('#FeeIDs')),len(PrintedFeeIDs),PrintedFeeIDs))
     sys.exit()
 
 def StringStop():
@@ -254,6 +257,21 @@ def getbits(bit1, bit2, outtype = "d"):
             
 
 
+def gettriggers(trg,outtype='list'): 
+    #outtype = 'list' or 'string'
+
+    ctp12 = trg & 0xFFF #selecting 12 lowest bits received from CTP
+    trglist = {0: 'ORB', 1: 'HB', 2: 'HBr', 3: 'HC', 4:'PhT', 5:'PP', 6:'Cal', 7:'SOT', 8:'EOT', 9:'SOC', 10:'EOC', 11:'TF', 12:'FErst', 13: 'cont', 14: 'running'}
+    if outtype == 'list':
+        return [trglist[b] for b in trglist if bool( (trg>>b) & 1)]
+    elif outtype == 'string':
+        toret=''
+        for b in trglist:
+            if bool( (trg>>b) & 1):
+                toret=toret+trglist[b]+' '
+        return toret+'(ctp %d)'%(ctp12)
+
+
 def readRDH(index):
 
     global RDHversion
@@ -266,6 +284,7 @@ def readRDH(index):
     global RDHtrg
     global RDHpagecount
     global RDHstopbit
+    global RDHTFtrg
     global RDHdet_field
     global RDHparbit
     global RDHlinkid
@@ -292,6 +311,7 @@ def readRDH(index):
 
     elif index == 3:
         RDHtrg = getbits(0,31)
+        RDHTFtrg = 'TF' in gettriggers(RDHtrg)
         RDHpagecount = getbits(32,47)
         RDHstopbit = getbits(48,55)
 
@@ -300,21 +320,6 @@ def readRDH(index):
         RDHparbit = getbits(32,47)
 
 
-
-
-def gettriggers(trg,outtype='list'): 
-    #outtype = 'list' or 'string'
-
-    ctp12 = trg & 0xFFF #selecting 12 lowest bits received from CTP
-    trglist = {0: 'ORB', 1: 'HB', 2: 'HBr', 3: 'HC', 4:'PhT', 5:'PP', 6:'Cal', 7:'SOT', 8:'EOT', 9:'SOC', 10:'EOC', 11:'TF', 12:'FErst', 13: 'cont', 14: 'running'}
-    if outtype == 'list':
-        return [trglist[b] for b in trglist if bool( (trg>>b) & 1)]
-    elif outtype == 'string':
-        toret=''
-        for b in trglist:
-            if bool( (trg>>b) & 1):
-                toret=toret+trglist[b]+' '
-        return toret+'(ctp %d)'%(ctp12)
         
 def getinfo_det_field(field):
     toret = 'det_field: '
@@ -604,7 +609,9 @@ def myprint(dump, wtype, comments, laneid=-1):
             NPrintedWords['W/E/F/N!'] += '!' in rbuff
         NPrintedWords['RDH'] += 1
         NPrintedWords['RDHstop' if RDHstopbit else 'RDHnostop'] += 1
+        NPrintedWords['RDHTFstop'] += ( RDHstopbit and RDHTFtrg)
         PrintedOrbits.add(RDHorbit) 
+        PrintedFeeIDs.add(RDHfeeid)
         
 
 rdhflag = True
