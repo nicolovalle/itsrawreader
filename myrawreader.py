@@ -28,7 +28,7 @@ Options:
    
 """
 
-Version = "v2.0.3 - 06-10-22"
+Version = "v3.0.0beta - 06-07-23"
 
 Info = """
 
@@ -38,7 +38,7 @@ Info = """
 
      * TRIGGER LIST:      {0: 'ORB', 1: 'HB', 2: 'HBr', 3: 'HC', 4:'PhT', 5:'PP', 6:'Cal', 7:'SOT', 8:'EOT', 9:'SOC', 10:'EOC', 11:'TF', 12:'FErst', 13: 'cont', 14: 'running'}
 
-     * Detector fields: eventlist = {27: 'CLK', 26: 'TimeBase', 25: 'TimeBaseUnsync'}; lanestatuslist = {3: 'F', 2: 'E', 1: 'W', 0: 'MissingData'} 
+     * Detector fields: eventlist = {4: 'TrgRamp', 27: 'CLK', 26: 'TimeBase', 25: 'TimeBaseUnsync'}; lanestatuslist = {3: 'F', 2: 'E', 1: 'W', 0: 'MissingData'} 
 
      * Chip data:
        Idl: Idle,  bON/bOF: Busy ON/OFF, E!.: APE error 
@@ -323,9 +323,9 @@ def readRDH(index):
         
 def getinfo_det_field(field):
     toret = 'det_field: '
-    if field >> 28:
+    if field >> 27:
         toret = toret + 'W! '
-    eventlist = {26: 'CLK', 25: 'TimeBase', 24: 'TimeBaseUnsync'}
+    eventlist = {4: 'TrgRamp', 26: 'CLK', 25: 'TimeBase', 24: 'TimeBaseUnsync'}
     lanestatuslist = {3: 'F', 2: 'E', 1: 'W', 0: 'MissingData'}
     for b in eventlist:
         if bool( (field>>b) & 1):
@@ -625,7 +625,7 @@ while word:
 
     comments=''
 
-    if rdhflag and ( getbits(0,7) != 6 or getbits(8,15) != 64):
+    if rdhflag and ( getbits(0,7) not in [6,7] or getbits(8,15) != 64):
         print("SKIPPIN GBT WORD %d: NOT v6 HEADER? [E!] (To be improved)"%(int(OFFSET,16)/16+1))
         getnext()
         continue
@@ -645,7 +645,7 @@ while word:
         PREV['RDHoffset_new_packet'] = RDHoffset_new_packet
 
         ## checking packet counter jump
-        comments="## fee %s . next: %d . pack_count: %d"%(RDHfeeid, RDHoffset_new_packet, RDHpacketcounter)
+        comments="## v%s . fee %s . next: %d . pack_count: %d"%(RDHversion,RDHfeeid, RDHoffset_new_packet, RDHpacketcounter)
         if RDHpacketcounter > PREV['RDHpacketcounter']+1 and PREV['RDHpacketcounter'] != -1:
             comments = comments + ' (E! jump from %d to %d)'%(PREV['RDHpacketcounter'],RDHpacketcounter)
         elif RDHpacketcounter < PREV['RDHpacketcounter']+1:
