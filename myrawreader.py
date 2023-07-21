@@ -28,13 +28,13 @@ Options:
    
 """
 
-Version = "v3.0.0beta - 06-07-23"
+Version = "v3.0.0beta - 21-07-23"
 
 Info = """
 
      %s
 
-     * Decoded GBT Words: RDH,.,IHW,TDH,TDT,DDW,CDW,DIA,STA (to be used with -e, -E)
+     * Decoded GBT Words: RDH,.,IHW,TDH,TDT,DDW,CDW,DIA,STA,___ (to be used with -e, -E)
 
      * TRIGGER LIST:      {0: 'ORB', 1: 'HB', 2: 'HBr', 3: 'HC', 4:'PhT', 5:'PP', 6:'Cal', 7:'SOT', 8:'EOT', 9:'SOC', 10:'EOC', 11:'TF', 12:'FErst', 13: 'cont', 14: 'running'}
 
@@ -42,7 +42,7 @@ Info = """
 
      * Chip data:
        Idl: Idle,  bON/bOF: Busy ON/OFF, E!.: APE error 
-       CH: Chip Header, EF: Chip Empty Frame, DS: Data short, DL: Data long
+       CH: Chip Header, CT: Chip Trailer, EF: Chip Empty Frame, DS: Data short, DL: Data long
 
      * TABLE FILE:
        A_       B_       C_               D_           E_         F_                   G_        H_       I_     J_  
@@ -157,7 +157,7 @@ IsRDHFromDump = False
 PREV={'RDHpacketcounter':-1, 'RDHoffset_new_packet':-1}  
 
 # Summary
-NPrintedWords={'RDH':0, 'RDHstop':0, 'RDHnostop':0, 'RDHTFstop':0, 'TDH':0, 'TDHint':0, 'TDHint_nocont':0, 'TDHPhT':0, 'TDT':0, 'IHW':0, 'DDW': 0, 'CDW':0, 'DIA':0, 'STA':0, ' . ':0, '???':0, 'W/E/F/N!':0}
+NPrintedWords={'RDH':0, 'RDHstop':0, 'RDHnostop':0, 'RDHTFstop':0, 'TDH':0, 'TDHint':0, 'TDHint_nocont':0, 'TDHPhT':0, 'TDT':0, 'IHW':0, 'DDW': 0, 'CDW':0, 'DIA':0, 'STA':0, ' . ':0, '___':0, '???':0, 'W/E/F/N!':0}
 PrintedOrbits = set()
 PrintedFeeIDs = set()
 
@@ -375,11 +375,12 @@ def readword():
     ## Reading trigger data header
     if wordtype == 'TDH':
         orbitid = getbits(32,63,'0x')
+        bunchcrossing = getbits(16,27,'0x')
         continuation = 'continuation' if bool(getbits(14,14)) else ''
         nodata = 'nodata' if bool(getbits(13,13)) else ''
         internal = 'internal' if bool(getbits(12,12)) else ''
         trgtype = gettriggers(getbits(0,11),'string')
-        comments = "orbit %s . %s . %s . %s . trg: %s"%(orbitid, continuation, nodata, internal,trgtype)
+        comments = "orbit/bc %s/%s . %s . %s . %s . trg: %s"%(orbitid, bunchcrossing, continuation, nodata, internal,trgtype)
 
     ## Reading trigger data trailer
     if wordtype == 'TDT':
@@ -472,7 +473,13 @@ def readword():
                     ib += 8
                 elif by[0] == 'b':  # chip trailer
                     #chip_word_list.append('CT'+getbits(ib,ib+3,'s'))
-                    chip_word_list.append('CT ')
+                    if len(by) > 2:
+                        print("@! FOUND CHIP TRAILER THAT I COULD NOT DECODE",by)
+                        Exit()
+                    if (int(by[1],16) >> 3) & 1:
+                        chip_word_list.append('CTb')
+                    else:
+                        chip_word_list.append('CT ')
                     ib += 8
                 elif by[0] == 'c' or by[0] == 'd': # reagion header
                     #chip_word_list.append('RH'+str(getbits(ib,ib+4,'d')))
@@ -571,9 +578,9 @@ def myprint(dump, wtype, comments, laneid=-1):
     global BufferRDHdump
     global NPrintedWords
 
-    dump1 = OFFSET+':   '+str(dump)
-    if 'RDH' not in wtype:
-        dump1 = dump1[:-54]+'-...' if len(dump1) > 9*16 else dump1[:-18]+'-'+'.'*17 
+    dump1 = OFFSET+':   '+str(dump)+' '*(16*3-len(str(dump))-1)
+    #if 'RDH' not in wtype:
+    #    dump1 = dump1[:-54]+'-...' if len(dump1) > 9*16 else dump1[:-18]+'-'+'.'*17 
 
     wtype1 = str(wtype) if len(str(wtype))==5 else ' '+str(wtype)+' '
     comments1 = '-' if comments=='' else str(comments)
@@ -626,17 +633,19 @@ while word:
     comments=''
 
     if rdhflag and ( getbits(0,7) not in [6,7] or getbits(8,15) != 64):
-        print("SKIPPIN GBT WORD %d: NOT v6 HEADER? [E!] (To be improved)"%(int(OFFSET,16)/16+1))
+        print("SKIPPIN GBT WORD %d: NOT HEADER? [E!] (To be improved)"%(int(OFFSET,16)/16+1))
         getnext()
         continue
 
 
     #OPERATIONS WITH WORD
 
-    if not fromdump and (int(OFFSET,16)-current_rdh_offset) == PREV['RDHoffset_new_packet']:
-        rdhflag = True
-    elif fromdump:
+    if fromdump:
         rdhflag = IsRDHFromDump
+    else:
+        if (int(OFFSET,16)-current_rdh_offset) == PREV['RDHoffset_new_packet']:
+            rdhflag = True
+        
 
     
     if rdhflag:
@@ -681,17 +690,33 @@ while word:
 
         rdhflag = False
 
-    else:
-        wordtype, comments, laneid = readword()
-         
-        if comments != 'skipped':
-            dumpbinflag = dumpbin and wordtype == ' . '
-            myprint(getbits(0,127,'dumpbin' if dumpbinflag else 'dump'),wordtype,comments,laneid)       
-        
-        
-    if onlyRDH or not isHBFselected():
+    elif onlyRDH or not isHBFselected():
         getnext(RDHoffset_new_packet - RDHsize)
-    getnext()
+        rdhflag = True
+
+    else:
+        payloadsize = RDHoffset_new_packet - RDHsize
+        ndetectorwords = (int)(payloadsize / 10)
+        npaddingbytes = payloadsize % 10
+
+        for iww in range(ndetectorwords):
+            getnext(10)
+            wordtype, comments, laneid = readword()
+         
+            if comments != 'skipped':
+                dumpbinflag = dumpbin and wordtype == ' . '
+                myprint(getbits(0,127,'dumpbin' if dumpbinflag else 'dump'),wordtype,comments,laneid)
+        if npaddingbytes > 0:
+            getnext(npaddingbytes)
+            myprint(getbits(0,8,'dump'),'___','padding')
+        getnext()
+       
+        
+        
+    #if onlyRDH or not isHBFselected():
+    #    getnext(RDHoffset_new_packet - RDHsize)
+    #print(int(OFFSET,16), RDHoffset_new_packet)
+    #getnext(10)
     #end of loop
 
     
