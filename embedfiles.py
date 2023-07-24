@@ -4,11 +4,11 @@
 
 embedfiles.py
 
-Usage: ./myrawreader.py -r <file.raw> -d <dump.txt> [-o <outfile.raw>] 
+Usage: ./myrawreader.py [-r <file.raw>] -d <dump.txt> [-o <outfile.raw>] 
 
 Options:
     -h --help                Display this help
-    -r <file.raw>            Raw data source
+    -r <file.raw>            Raw data source [default: none]
     -d <dum.txt>             Dumped text file
     -o <outfile.raw>         Output raw file [default: default]
 
@@ -61,27 +61,37 @@ for L in Lines:
 
 
 
-rawfile = open(rawfilename,'rb')
+
 outfile = open(outfilename,'wb')
 
 OFFSET = 0
 
-for OS in NEWWORDS:
+if (rawfilename != 'none'):
 
+    rawfile = open(rawfilename,'rb')
+    
+    for OS in NEWWORDS:
 
-    Data = rawfile.read(OS - OFFSET)
-    outfile.write(Data)
-    Data = rawfile.read(16)
-    outfile.write(bytearray(NEWWORDS[OS]))
+        Data = rawfile.read(OS - OFFSET)
+        outfile.write(Data)
+        Data = rawfile.read(16)
+        outfile.write(bytearray(NEWWORDS[OS]))
 
     OFFSET = OS + 16
 
     
-totalsize = os.path.getsize(rawfilename)
+    totalsize = os.path.getsize(rawfilename)
 
-Data = rawfile.read(totalsize - OFFSET)
-outfile.write(Data)
+    Data = rawfile.read(totalsize - OFFSET)
+    outfile.write(Data)
 
-rawfile.close()
+    rawfile.close()
+
+else:
+
+    for OS in NEWWORDS:
+        outfile.write(bytearray(NEWWORDS[OS]))
+        
+
 outfile.close()
 

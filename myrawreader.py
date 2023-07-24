@@ -4,7 +4,7 @@
 
 myrawreader.py
 
-Usage: ./myrawreader.py -f <file.raw> [--fromdump] [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [-o <offset>] [-r <range>] [-O <orbit>] [--onlyRDH] [--info] [--dumpbin] [--decodechips] [--printtable] [--silent] [--stop <strings>]
+Usage: ./myrawreader.py -f <file.raw> [--fromdump] [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [-o <offset>] [-r <range>] [-O <orbit>] [--onlyRDH] [--info] [--dumpbin] [--decodechips] [--zero-padding] [--printtable] [--silent] [--stop <strings>]
 
 Options:
     -h --help                Display this help
@@ -21,6 +21,7 @@ Options:
     --info                   Print info and exit [default: False]    
     --dumpbin                Print ALPIDE words bit by bit [default: False]  
     --decodechips            Decode chip data [default: False]
+    --zero-padding           Use old data format with zero padding [default: False]
     --printtable             Print RDH summary on text file (name: myrr_table_<filename>.txt). See --info. [default: False]
     --silent                 Do not print word (but keep statistics on selected ones) [default: False]
     --stop <strings>         Comma separated list. Stop if one of those strings is printed. Use @! for internal errors [default: none]
@@ -28,7 +29,7 @@ Options:
    
 """
 
-Version = "v3.0.0beta - 21-07-23"
+Version = "v3.0.1 - 24-07-23"
 
 Info = """
 
@@ -42,7 +43,8 @@ Info = """
 
      * Chip data:
        Idl: Idle,  bON/bOF: Busy ON/OFF, E!.: APE error 
-       CH: Chip Header, CT: Chip Trailer, EF: Chip Empty Frame, DS: Data short, DL: Data long
+       CHi: Chip Header index i, CTi: Chip Trailer (computed from last CH), EF: Chip Empty Frame, DS: Data short, DL: Data long
+       CTb: Busy Viol, CTo: Data Overrun, CTf: faulty
 
      * TABLE FILE:
        A_       B_       C_               D_           E_         F_                   G_        H_       I_     J_  
@@ -90,6 +92,8 @@ onlyRDH = bool(argv["--onlyRDH"])
 printinfo = bool(argv["--info"])
 dumpbin = bool(argv["--dumpbin"])
 decodechips = bool(argv["--decodechips"])
+zeropadding = bool(argv["--zero-padding"])
+wordlength = 16 if zeropadding else 10
 printtable = bool(argv["--printtable"])
 silent = bool(argv["--silent"])
 if str(argv["--stop"]) == 'none':
@@ -148,6 +152,7 @@ RDHlinkid = -1
 RDHcruid = -1
 RDHdw = -1
 DataLane = dict()
+CurrentChip = ['999',]*28 # list of chipid from chip header, for each lane -- overwritten at each CH
 
 BufferRDHdump = []
 
@@ -346,6 +351,7 @@ def getinfo_det_field(field):
 def readword():
 
     global DataLane
+    global CurrentChip
 
     worddict={224:'IHW', 232:'TDH', 240:'TDT', 228:'DDW', 248:'CDW'}
     #ITS Header Word, Trigger Data Heder, Trigger Data Trailer, Diagnostic data word, Calibration Data Word
@@ -448,84 +454,91 @@ def readword():
             ib = 0
             if laneid in DataLane:
                 ib = DataLane[laneid][0]*8
-                chip_word_list = ['<  ',]*DataLane[laneid][0]
+                chip_word_list = ['<   ',]*DataLane[laneid][0]
                 DataLane.pop(laneid)
             while ib <= 64:
                 by = getbits(ib,ib+7,'x').zfill(2)
                 ## words with length = 1 byte
                 if by == '00':
                     if laneid in DataLane:
-                        chip_word_list.append('@!<')
+                        chip_word_list.append('@!< ')
                     else:
-                        chip_word_list.append('-- ')
+                        chip_word_list.append('--  ')
                     ib += 8
                 elif by[0] == 'f':
                     if by[1] == 'f':
-                        chip_word_list.append('Idl')
+                        chip_word_list.append('Idl ')
                     elif by[1] == '1':
-                        chip_word_list.append('bON')
+                        chip_word_list.append('bON ')
                     elif by[1] == '0':
-                        chip_word_list.append('bOF')
+                        chip_word_list.append('bOF ')
                     elif by in error_dict:
-                        chip_word_list.append('E!.')
+                        chip_word_list.append('E!. ')
                     else:
-                        chip_word_list.append('@!?')
+                        chip_word_list.append('@!? ')
                     ib += 8
                 elif by[0] == 'b':  # chip trailer
                     #chip_word_list.append('CT'+getbits(ib,ib+3,'s'))
                     if len(by) > 2:
                         print("@! FOUND CHIP TRAILER THAT I COULD NOT DECODE",by)
                         Exit()
-                    if (int(by[1],16) >> 3) & 1:
-                        chip_word_list.append('CTb')
+                    chip_id_from_header = CurrentChip[laneid]
+                    if int(by[1],16) == 0b1000: # busy violation
+                        chip_word_list.append('CTb'+chip_id_from_header)
+                    elif int(by[1],16) == 0b1100: # data overrun
+                        chip_word_list.append('CTo'+chip_id_from_header)
+                    elif int(by[1],16) == 0b1110: # fatal
+                        chip_word_list.append('CTf'+chip_id_from_header)
                     else:
-                        chip_word_list.append('CT ')
+                        chip_word_list.append('CT'+chip_id_from_header+' ')
                     ib += 8
                 elif by[0] == 'c' or by[0] == 'd': # reagion header
                     #chip_word_list.append('RH'+str(getbits(ib,ib+4,'d')))
-                    chip_word_list.append('RH ')
+                    chip_word_list.append('RH  ')
                     ib += 8
                 ## words with length = 2 bytes
                 elif by[0] == 'a': # chip header
                     if (ib < 64):
-                        chip_word_list.append('CH ')
-                        chip_word_list.append('++ ')
+                        chip_word_list.append('CH'+by[1]+' ')
+                        chip_word_list.append('++  ')
+                        CurrentChip[laneid] = by[1]
                     else:
-                        chip_word_list.append('CH>')
-                        DataLane[laneid]=[1,'CH']
+                        chip_word_list.append('CH'+by[1]+'>')
+                        DataLane[laneid]=[1,'CH  ']
+                        CurrentChip[laneid] = by[1]
                     ib += 16
                 elif by[0] == 'e': # chip empty frame
                     if (ib < 64):
-                        chip_word_list.append('EF ')
-                        chip_word_list.append('++ ')
+                        chip_word_list.append('EF  ')
+                        chip_word_list.append('++  ')
                     else:
-                        chip_word_list.append('EF>')
-                        DataLane[laneid]=[1,'EF']
+                        chip_word_list.append('EF> ')
+                        DataLane[laneid]=[1,'EF ']
                     ib += 16
                 elif by[0] in ['4','5','6','7']: # data short
                     if (ib < 64):
-                        chip_word_list.append('DS ')
-                        chip_word_list.append('++ ')
+                        chip_word_list.append('DS  ')
+                        chip_word_list.append('++  ')
                     else:
-                        chip_word_list.append('DS>')
-                        DataLane[laneid]=[1,'DS']
+                        chip_word_list.append('DS> ')
+                        DataLane[laneid]=[1,'DS ']
                     ib += 16
                 ## words with length = 3 bytes
                 elif by[0] in ['0','1','2','3']:
                     if (ib < 56):
-                        chip_word_list.append('DL ')
-                        chip_word_list.append('++ ')
-                        chip_word_list.append('++ ')
+                        chip_word_list.append('DL  ')
+                        chip_word_list.append('++  ')
+                        chip_word_list.append('++  ')
                     elif (ib < 64):
-                        chip_word_list.append('DL ')
-                        chip_word_list.append('++>')
+                        chip_word_list.append('DL  ')
+                        chip_word_list.append('++> ')
                         DataLane[laneid]=[1,'DL']
                     else:
-                        chip_word_list.append('DL>>')
-                        DataLane[laneid]=[2,'DL']
+                        chip_word_list.append('DL>> ')
+                        DataLane[laneid]=[2,'DL ']
                     ib += 24
                 else:
-                    chip_word_list.append('@! ')
+                    chip_word_list.append('@!  ')
                     ib += 8
             comments += ' '*(4-len(str(laneid)))
             for WW in chip_word_list:
@@ -693,14 +706,16 @@ while word:
     elif onlyRDH or not isHBFselected():
         getnext(RDHoffset_new_packet - RDHsize)
         rdhflag = True
+        getnext()
 
     else:
         payloadsize = RDHoffset_new_packet - RDHsize
-        ndetectorwords = (int)(payloadsize / 10)
-        npaddingbytes = payloadsize % 10
+        # wordlength is 16 (old format: --zero-padding) or 10 (no zero padding)
+        ndetectorwords = (int)(payloadsize / wordlength)
+        npaddingbytes = payloadsize % wordlength
 
         for iww in range(ndetectorwords):
-            getnext(10)
+            getnext(wordlength)
             wordtype, comments, laneid = readword()
          
             if comments != 'skipped':
