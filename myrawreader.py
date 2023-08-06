@@ -4,7 +4,7 @@
 
 myrawreader.py
 
-Usage: ./myrawreader.py -f <file.raw> [--fromdump] [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [-o <offset>] [-r <range>] [-O <orbit>] [--onlyRDH] [--info] [--dumpbin] [--decodechips] [--zero-padding] [--printtable] [--silent] [--stop <strings>]
+Usage: ./myrawreader.py -f <file.raw> [--fromdump] [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [-o <offset>] [-r <range>] [-O <orbit>] [--onlyRDH] [--info] [--dumpbin] [--decodechips] [--zero-padding] [--printtable] [--silent] [--reverse] [--stop <strings>]
 
 Options:
     -h --help                Display this help
@@ -24,12 +24,13 @@ Options:
     --zero-padding           Use old data format with zero padding [default: False]
     --printtable             Print RDH summary on text file (name: myrr_table_<filename>.txt). See --info. [default: False]
     --silent                 Do not print word (but keep statistics on selected ones) [default: False]
+    --reverse                Print bytes from rightmost to leftmost [default: False]
     --stop <strings>         Comma separated list. Stop if one of those strings is printed. Use @! for internal errors [default: none]
 
    
 """
 
-Version = "v3.0.1 - 24-07-23"
+Version = "v3.0.2 - 06-08-23"
 
 Info = """
 
@@ -39,7 +40,7 @@ Info = """
 
      * TRIGGER LIST:      {0: 'ORB', 1: 'HB', 2: 'HBr', 3: 'HC', 4:'PhT', 5:'PP', 6:'Cal', 7:'SOT', 8:'EOT', 9:'SOC', 10:'EOC', 11:'TF', 12:'FErst', 13: 'cont', 14: 'running'}
 
-     * Detector fields: eventlist = {4: 'TrgRamp', 27: 'CLK', 26: 'TimeBase', 25: 'TimeBaseUnsync'}; lanestatuslist = {3: 'F', 2: 'E', 1: 'W', 0: 'MissingData'} 
+     * Detector fields: eventlist = {4: 'TrgRamp', 5: 'Reco', 27: 'CLK', 26: 'TimeBase', 25: 'TimeBaseUnsync'}; lanestatuslist = {3: 'F', 2: 'E', 1: 'W', 0: 'MissingData'} 
 
      * Chip data:
        Idl: Idle,  bON/bOF: Busy ON/OFF, E!.: APE error 
@@ -96,6 +97,7 @@ zeropadding = bool(argv["--zero-padding"])
 wordlength = 16 if zeropadding else 10
 printtable = bool(argv["--printtable"])
 silent = bool(argv["--silent"])
+reverseprint = bool(argv["--reverse"])
 if str(argv["--stop"]) == 'none':
     stopatstring = []
 else:
@@ -330,7 +332,7 @@ def getinfo_det_field(field):
     toret = 'det_field: '
     if field >> 27:
         toret = toret + 'W! '
-    eventlist = {4: 'TrgRamp', 26: 'CLK', 25: 'TimeBase', 24: 'TimeBaseUnsync'}
+    eventlist = {4: 'TrgRamp', 5: 'Reco', 26: 'CLK', 25: 'TimeBase', 24: 'TimeBaseUnsync'}
     lanestatuslist = {3: 'F', 2: 'E', 1: 'W', 0: 'MissingData'}
     for b in eventlist:
         if bool( (field>>b) & 1):
@@ -592,6 +594,13 @@ def myprint(dump, wtype, comments, laneid=-1):
     global NPrintedWords
 
     dump1 = OFFSET+':   '+str(dump)+' '*(16*3-len(str(dump))-1)
+    if reverseprint:
+        revdumpvec = str(dump).split('-')
+        revdumpvec.reverse()
+        revdump = ''
+        for brv in revdumpvec:
+            revdump += brv + '-'
+        dump1 = OFFSET+':   '+revdump[:-1]+' '*(16*3-len(str(dump))-1)
     #if 'RDH' not in wtype:
     #    dump1 = dump1[:-54]+'-...' if len(dump1) > 9*16 else dump1[:-18]+'-'+'.'*17 
 
