@@ -4,12 +4,11 @@
 
 myrawreader.py
 
-Usage: ./myrawreader.py -f <file.raw> [--fromdump] [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [-o <offset>] [-r <range>] [-O <orbit>] [--onlyRDH] [--info] [--dumpbin] [--decodechips] [--zero-padding] [--printtable] [--silent] [--reverse] [--stop <strings>]
+Usage: ./myrawreader.py -f <file.raw> [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [-o <offset>] [-r <range>] [-O <orbit>] [--onlyRDH] [--info] [--dumpbin] [--decode-chips] [--zero-padding] [--warning-summary] [--print-table] [--silent] [--reverse] [--stop <strings>]
 
 Options:
     -h --help                Display this help
     -f <file.raw>            Raw ITS data file
-    --fromdump               Use text output of this script as input [default: False]
     -e <excludedwords>       Comma separated list of GBT words not to print [default: none]
     -E <skippedwords>        Comma separated list of GBT words not to decode. Overrides -e [default: none]
     -l <lane>                Comma separated list of HW lanes to print [default: -1]
@@ -20,17 +19,18 @@ Options:
     --onlyRDH                Read RDH only (skip words according to RDH offset) [default: False]
     --info                   Print info and exit [default: False]    
     --dumpbin                Print ALPIDE words bit by bit [default: False]  
-    --decodechips            Decode chip data [default: False]
+    --decode-chips           Decode chip data [default: False]
     --zero-padding           Use old data format with zero padding [default: False]
-    --printtable             Print RDH summary on text file (name: myrr_table_<filename>.txt). See --info. [default: False]
+    --warning-summary        Print list of "!" (W/E/F/N) messages at the end [default: False]
+    --print-table            Print RDH summary on text file (name: myrr_table_<filename>.txt). See --info. [default: False]
     --silent                 Do not print word (but keep statistics on selected ones) [default: False]
     --reverse                Print bytes from rightmost to leftmost [default: False]
-    --stop <strings>         Comma separated list. Stop if one of those strings is printed. Use @! for internal errors [default: none]
+    --stop <strings>         Comma separated list. Stop if one of those strings is printed. Use @! for internal errors. Prints even if silent [default: none]
 
    
 """
 
-Version = "v3.0.2 - 06-08-23"
+Version = "v3.1.0 - 16-09-23"
 
 Info = """
 
@@ -38,25 +38,25 @@ Info = """
 
      * Decoded GBT Words: RDH,.,IHW,TDH,TDT,DDW,CDW,DIA,STA,___ (to be used with -e, -E)
 
-     * TRIGGER LIST:      {0: 'ORB', 1: 'HB', 2: 'HBr', 3: 'HC', 4:'PhT', 5:'PP', 6:'Cal', 7:'SOT', 8:'EOT', 9:'SOC', 10:'EOC', 11:'TF', 12:'FErst', 13: 'cont', 14: 'running'}
+     * TRIGGER LIST:   {0: 'ORB', 1: 'HB', 2: 'HBr', 3: 'HC', 4:'PhT', 5:'PP', 6:'Cal', 7:'SOT', 8:'EOT', 9:'SOC', 10:'EOC', 11:'TF', 12:'FErst', 13: 'cont', 14: 'running'}
 
      * Detector fields: eventlist = {4: 'TrgRamp', 5: 'Reco', 27: 'CLK', 26: 'TimeBase', 25: 'TimeBaseUnsync'}; lanestatuslist = {3: 'F', 2: 'E', 1: 'W', 0: 'MissingData'} 
 
      * Chip data:
        Idl: Idle,  bON/bOF: Busy ON/OFF, E!.: APE error 
-       CHi: Chip Header index i, CTi: Chip Trailer (computed from last CH), EF: Chip Empty Frame, DS: Data short, DL: Data long
+       CHi: Chip Header index i, CTi: Chip Trailer (computed from last CH), EFi: Chip Empty Frame index i, DS: Data short, DL: Data long
        CTb: Busy Viol, CTo: Data Overrun, CTf: faulty
+
+     * Chip errors reported:
+       E!ChipOrderXY (if chip header X is found before Y with X >= Y)
+       W!ChipOrderXY (if empty frame chip X is found before Y with X >= Y)
 
      * TABLE FILE:
        A_       B_       C_               D_           E_         F_                   G_        H_       I_     J_  
        RDHfeeid,RDHorbit,RDHpacketcounter,RDHpagecount,RDHstopbit,RDHoffset_new_packet,RDHlinkid,RDHcruid,RDHtrg,RDHbc
 
-     * --fromdump
-       Be careful when using dumps together with options exploiting RDH offsets.
-       The offsets are fake if the dump is a skimmed version of the raw file.
-
      * list of words summarized at the end:
-       {'RDH':0, 'RDHstop':0, 'RDHnostop':0, 'TDH':0, 'TDHint':0, 'TDHint_nocont':0, 'TDHPhT':0, 'TDT':0, 'IHW':0, 'DDW': 0, 'CDW':0, 'DIA':0, 'STA':0, ' . ':0, '???':0, 'W/E/F/N!':0}
+       {'RDH':0, 'RDHstop':0, 'RDHnostop':0, 'RDHTFstop':0, 'TDH':0, 'TDHint':0, 'TDHint_nocont':0, 'TDHPhT':0, 'TDT':0, 'TDTpkt_done':0, 'IHW':0, 'DDW': 0, 'CDW':0, 'DIA':0, 'STA':0, ' . ':0, '___':0, '???':0, 'W/E/F/N!':0}
        
 """%(Version)
 
@@ -69,19 +69,12 @@ import re
 
 argv = docopt.docopt(__doc__,version="1.0")
 rawfilename = str(argv["-f"])
-fromdump = bool(argv["--fromdump"])
-if fromdump:
-    import numpy
 nonprinted_words = str(argv["-e"])
 skipped_words = str(argv["-E"])
 lanes_to_print = [int (LL) for LL in str(argv["-l"]).split(",")]
 selected_feeid = [] if str(argv["-i"]) == '-1' else [int(fe,16) for fe in str(argv["-i"]).split(",")]
 myoffset = int(str(argv["-o"]),16)
 interval = [int(ir) for ir in str(argv["-r"]).split(":")]
-if fromdump and (myoffset > 0 or interval != [0,-1]):
-    #print('The offset will be considered w.r.t. the number of lines in the dumped file. Original offset will be ignored.')
-    print('Do not change offset while reading dumped file')
-    sys.exit()
 if ':' not in str(argv["-O"]):
     selected_orbit = [] if str(argv["-O"]) == '-1' else [int(orb,16) for orb in str(argv["-O"]).split(",")]
     selected_orbit_range = []
@@ -92,10 +85,11 @@ else:
 onlyRDH = bool(argv["--onlyRDH"])
 printinfo = bool(argv["--info"])
 dumpbin = bool(argv["--dumpbin"])
-decodechips = bool(argv["--decodechips"])
+decodechips = bool(argv["--decode-chips"])
 zeropadding = bool(argv["--zero-padding"])
 wordlength = 16 if zeropadding else 10
-printtable = bool(argv["--printtable"])
+printwarnsummary = bool(argv["--warning-summary"])
+printtable = bool(argv["--print-table"])
 silent = bool(argv["--silent"])
 reverseprint = bool(argv["--reverse"])
 if str(argv["--stop"]) == 'none':
@@ -120,14 +114,10 @@ filesize = os.path.getsize(rawfilename)
 last_offset = '0x'+format(int(filesize)-16,'x').zfill(8)
 print(Version)
 print("Processing file "+rawfilename)
-if not fromdump:
-    print("Size: %d. Contains %d lines (up to offset = %s)"%(filesize,filesize/16,last_offset))
-interval = [0,numpy.inf] if fromdump else [max(0,myoffset+16*interval[0]), int(filesize)-16 if interval[1]<0 else min(int(filesize)-16, myoffset + interval[1]*16)] 
+print("Size: %d. Contains %d lines (up to offset = %s)"%(filesize,filesize/16,last_offset))
+interval = [max(0,myoffset+16*interval[0]), int(filesize)-16 if interval[1]<0 else min(int(filesize)-16, myoffset + interval[1]*16)] 
 
-if fromdump:
-    f = open(rawfilename,'r')
-else:
-    f = open(rawfilename,'rb')
+f = open(rawfilename,'rb')
 
 #global variables
 GBTWORD = [0,]      #will loop over the file: written by getnext()
@@ -154,19 +144,31 @@ RDHlinkid = -1
 RDHcruid = -1
 RDHdw = -1
 DataLane = dict()
-CurrentChip = ['999',]*28 # list of chipid from chip header, for each lane -- overwritten at each CH
+CurrentChipCH = ['-1',]*28 # list of chipid from chip header, for each lane -- overwritten at each CH, used to assign CT id
+CurrentChipEF = ['-1',]*28 # same, but taken from EmptyFrames, used for check on non increasing chip id
 
 BufferRDHdump = []
 
-IsRDHFromDump = False
 
 # used to monitor variable changes
 PREV={'RDHpacketcounter':-1, 'RDHoffset_new_packet':-1}  
 
 # Summary
-NPrintedWords={'RDH':0, 'RDHstop':0, 'RDHnostop':0, 'RDHTFstop':0, 'TDH':0, 'TDHint':0, 'TDHint_nocont':0, 'TDHPhT':0, 'TDT':0, 'IHW':0, 'DDW': 0, 'CDW':0, 'DIA':0, 'STA':0, ' . ':0, '___':0, '???':0, 'W/E/F/N!':0}
+NPrintedWords={'RDH':0, 'RDHstop':0, 'RDHnostop':0, 'RDHTFstop':0, 'TDH':0, 'TDHint':0, 'TDHint_nocont':0, 'TDHPhT':0, 'TDT':0, 'TDTpkt_done':0, 'IHW':0, 'DDW': 0, 'CDW':0, 'DIA':0, 'STA':0, ' . ':0, '___':0, '???':0, 'W/E/F/N!':0}
 PrintedOrbits = set()
 PrintedFeeIDs = set()
+WarningMessages = [] # filled with any printed line containing '!'
+StopAfterNWords = -1 # for the stopping feature
+
+
+def ClearLaneData():
+    global DataLane
+    global CurrentChipCH
+    global CurrentChipEF
+
+    DataLane.clear()
+    CurrentChipCH = ['-1',]*28
+    CurrentChipEF = ['-1',]*28
 
 def Exit():
 
@@ -181,48 +183,36 @@ def Exit():
     
     print("#RDHOrbits:%s %d, form %s to %s . delta = %d"%(' '*(15-len('#RDHOrbits')),NPrintedOrbits,hex(minorb),hex(maxorb),maxorb-minorb))
     print("#FeeIDs:%s %d, %s"%(' '*(15-len('#FeeIDs')),len(PrintedFeeIDs),PrintedFeeIDs))
+    if printwarnsummary:
+        print('\nWarnings and errors:')
+        for we in WarningMessages:
+            print(we)
+        if len(WarningMessages) == 0:
+            print('None')
     sys.exit()
 
 def StringStop():
-    exitword = input('Enter to continue; any character to exit: ')
-    if exitword != '':
-        Exit()
+    global StopAfterNWords
+    exitword = input('Enter or a number to continue;  any character to exit: ')
+    try:
+        StopAfterNWords = int(exitword)
+    except ValueError:
+        if exitword != '':
+            Exit()
+        else:
+            StopAfterNWords = -1
 
 def getnext(nbyte = 16):
 
     global word
     global GBTWORD
     global OFFSET
-    global IsRDHFromDump
     
-    if fromdump:
-        if nbyte == 0:
-            return
-        word = '.'
-        i = 0
-        while i < int(nbyte/16) and word:
-            word = f.readline()
-            i += word[0:2] == '0x'
-        word = word.replace("-.................","-00"*6)
-        word = word.replace("-...","-00000000"*6)
-                     
-        if not word:
-            Exit()
-            
-        nonOFFSET = re.search(':.*',word).group(0)
-        IsRDHFromDump = '|RDH' in word
-        OFFSET = word.replace(nonOFFSET,'').replace('\n','')
-        try:
-            GBTWORD = re.search('.{2}-'*15+'.{2}',word).group(0).split('-')
-            GBTWORD = [int(gbt,16) for gbt in GBTWORD]
-        except:
-            GBTWORD = re.search('.{8}-'*15+'.{8}',word).group(0).split('-')
-            GBTWORD = [int(gbt,2) for gbt in GBTWORD]
-    else:
-        word = f.read(nbyte)  # <class 'bytes'>
-        GBTWORD = list(word)[0:nbyte] # <class 'list'>
-        OFFSET = '0x'+format(int(OFFSET,16)+nbyte,'x').zfill(8)
-        OFFSET = OFFSET.replace('0x-','-0x')
+    
+    word = f.read(nbyte)  # <class 'bytes'>
+    GBTWORD = list(word)[0:nbyte] # <class 'list'>
+    OFFSET = '0x'+format(int(OFFSET,16)+nbyte,'x').zfill(8)
+    OFFSET = OFFSET.replace('0x-','-0x')
     if int(OFFSET,16) > interval[1]:
         Exit()
 
@@ -301,7 +291,7 @@ def readRDH(index):
     global DataLane
 
     if index == 1:
-        DataLane.clear()
+        ClearLaneData()
         RDHversion = getbits(0,7)
         RDHsize = getbits(8,15)
         RDHfeeid = getbits(16,31,'0x')
@@ -353,17 +343,20 @@ def getinfo_det_field(field):
 def readword():
 
     global DataLane
-    global CurrentChip
+    global CurrentChipCH
+    global CurrentChipEF
 
-    worddict={224:'IHW', 232:'TDH', 240:'TDT', 228:'DDW', 248:'CDW'}
-    #ITS Header Word, Trigger Data Heder, Trigger Data Trailer, Diagnostic data word, Calibration Data Word
+    worddict={224:'IHW', 232:'TDH', 240:'TDT', 228:'DDW', 248:'CDW', 255:'___'}
+    #ITS Header Word, Trigger Data Heder, Trigger Data Trailer, Diagnostic data word, Calibration Data Word, padding
     marker = getbits(72,79)
     try:
         wordtype = worddict[marker]
     except:
         marker = getbits(77,79)
-        worddict={1:' . ', 5:'DIA', 2:' . ', 6:'DIA', 7:'STA'}      
+        # worddict={1:' . ', 5:'DIA', 2:' . ', 6:'DIA', 7:'STA'}      
         # Data, Diagnostic data, Status word
+        # But diagnistic data is not implemented now:
+        worddict = {1:' . ', 2:' . ', 7:'STA'}
   
         try:
             wordtype = worddict[marker]
@@ -374,6 +367,10 @@ def readword():
         return wordtype, 'skipped', -1
     comments = ''
     laneid = -1
+
+    ## Padding (for format without zero-padding)
+    if wordtype == '___':
+        comments = "padding"
 
     ## Reading ITS header word
     if wordtype == 'IHW':
@@ -392,7 +389,7 @@ def readword():
 
     ## Reading trigger data trailer
     if wordtype == 'TDT':
-        DataLane.clear()
+        ClearLaneData()
         violation = 'start_viol' if bool(getbits(67,67)) else ''
         timeout = 'timeout' if bool(getbits(65,65)) else ''
         packet_done = 'packet_done' if bool(getbits(64,64)) else ''
@@ -452,6 +449,7 @@ def readword():
 
         # Reading data chip
         if decodechips:
+            ChipErrors = [] # list of string to be printed at the end
             chip_word_list = []
             ib = 0
             if laneid in DataLane:
@@ -482,9 +480,9 @@ def readword():
                 elif by[0] == 'b':  # chip trailer
                     #chip_word_list.append('CT'+getbits(ib,ib+3,'s'))
                     if len(by) > 2:
-                        print("@! FOUND CHIP TRAILER THAT I COULD NOT DECODE",by)
+                        print("@! FOUND CHIP TRAILER THAT I COULD NOT DECODE:",by)
                         Exit()
-                    chip_id_from_header = CurrentChip[laneid]
+                    chip_id_from_header = CurrentChipCH[laneid]
                     if int(by[1],16) == 0b1000: # busy violation
                         chip_word_list.append('CTb'+chip_id_from_header)
                     elif int(by[1],16) == 0b1100: # data overrun
@@ -500,21 +498,29 @@ def readword():
                     ib += 8
                 ## words with length = 2 bytes
                 elif by[0] == 'a': # chip header
+
+                    if int(by[1],16) <= int(CurrentChipCH[laneid],16):
+                            ChipErrors.append('E!ChipOrder'+str(CurrentChipCH[laneid])+str(by[1]))
+                    CurrentChipCH[laneid] = by[1]
+
                     if (ib < 64):
                         chip_word_list.append('CH'+by[1]+' ')
                         chip_word_list.append('++  ')
-                        CurrentChip[laneid] = by[1]
                     else:
                         chip_word_list.append('CH'+by[1]+'>')
                         DataLane[laneid]=[1,'CH  ']
-                        CurrentChip[laneid] = by[1]
                     ib += 16
                 elif by[0] == 'e': # chip empty frame
+                    
+                    if int(by[1],16) <= int(CurrentChipEF[laneid],16):
+                        ChipErrors.append('W!ChipOrder'+str(CurrentChipEF[laneid])+str(by[1]))
+                    CurrentChipEF[laneid] = by[1]
+
                     if (ib < 64):
-                        chip_word_list.append('EF  ')
+                        chip_word_list.append('EF'+by[1]+' ')
                         chip_word_list.append('++  ')
                     else:
-                        chip_word_list.append('EF> ')
+                        chip_word_list.append('EF'+by[1]+'>')
                         DataLane[laneid]=[1,'EF ']
                     ib += 16
                 elif by[0] in ['4','5','6','7']: # data short
@@ -545,18 +551,8 @@ def readword():
             comments += ' '*(4-len(str(laneid)))
             for WW in chip_word_list:
                 comments = comments +  WW + ' '
-            
-                
-
-                
-                    
-                        
-                        
-                                              
-                
-                    
-        
-            
+            for ChEr in ChipErrors:
+                comments = comments + ChEr + ' '
             
 
     return wordtype, comments, laneid
@@ -579,13 +575,27 @@ def isHBFselected():
 
 def myprint(dump, wtype, comments, laneid=-1):
 
+    global WarningMessages
+    global StopAfterNWords
+
     def Print(line):
-        for sext in stopatstring:
-            if sext in line:
-                print(line)
-                StringStop()
-        if not silent:
+        
+        global WarningMessages
+        global StopAfterNWords
+        if '!' in line:
+            WarningMessages.append('! '+line)
+        stopfound = False
+        if StopAfterNWords > 0:
+            StopAfterNWords = StopAfterNWords - 1
+        if StopAfterNWords == 0:
+            stopfound = True
+        stopstr = bool(sum([1 for istr in stopatstring if istr in line])) # true if at least one stop string
+        if stopfound or stopstr:
             print(line)
+            StringStop()
+        elif not silent:
+            print(line)
+        
 
     global RDHorbit
     global RDHMEM
@@ -622,6 +632,9 @@ def myprint(dump, wtype, comments, laneid=-1):
         Print(toprint)
         NPrintedWords[wtype] += 1
         # THE FOLLOWING HAS TO BE IMPROVED. I WANT TO DISENTANGLE THE PRESENCE OF PHYSICS TRIGGER TO THE WRITTEN COMMENTS
+        if wtype == 'TDT':
+            if 'packet_done' in comments:
+                NPrintedWords['TDTpkt_done'] += 1
         if wtype == 'TDH':
             if 'PhT' in comments:
                 NPrintedWords['TDHPhT'] += 1
@@ -662,11 +675,8 @@ while word:
 
     #OPERATIONS WITH WORD
 
-    if fromdump:
-        rdhflag = IsRDHFromDump
-    else:
-        if (int(OFFSET,16)-current_rdh_offset) == PREV['RDHoffset_new_packet']:
-            rdhflag = True
+    if (int(OFFSET,16)-current_rdh_offset) == PREV['RDHoffset_new_packet']:
+        rdhflag = True
         
 
     
@@ -676,7 +686,7 @@ while word:
         PREV['RDHoffset_new_packet'] = RDHoffset_new_packet
 
         ## checking packet counter jump
-        comments="## v%s . fee %s . next: %d . pack_count: %d"%(RDHversion,RDHfeeid, RDHoffset_new_packet, RDHpacketcounter)
+        comments="## v%s . fee %s . next: %d(%s) . pack_count: %d"%(RDHversion,RDHfeeid, RDHoffset_new_packet, hex(RDHoffset_new_packet), RDHpacketcounter)
         if RDHpacketcounter > PREV['RDHpacketcounter']+1 and PREV['RDHpacketcounter'] != -1:
             comments = comments + ' (E! jump from %d to %d)'%(PREV['RDHpacketcounter'],RDHpacketcounter)
         elif RDHpacketcounter < PREV['RDHpacketcounter']+1:
