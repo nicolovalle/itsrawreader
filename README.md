@@ -10,7 +10,6 @@ python3. Packages needed:
 + `os`
 + `sys`
 + `re`
-+ `numpy` (only with `--fromdump`)
 
 Usage:
 

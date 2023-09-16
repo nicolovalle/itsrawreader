@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 
+
 """
 
-myrawreader.py
+myrawreader.py 
 
 Usage: ./myrawreader.py -f <file.raw> [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [-o <offset>] [-r <range>] [-O <orbit>] [--onlyRDH] [--info] [--dumpbin] [--decode-chips] [--zero-padding] [--warning-summary] [--print-table] [--silent] [--reverse] [--stop <strings>]
 
@@ -26,7 +27,6 @@ Options:
     --silent                 Do not print word (but keep statistics on selected ones) [default: False]
     --reverse                Print bytes from rightmost to leftmost [default: False]
     --stop <strings>         Comma separated list. Stop if one of those strings is printed. Use @! for internal errors. Prints even if silent [default: none]
-
    
 """
 
@@ -160,7 +160,7 @@ PrintedFeeIDs = set()
 WarningMessages = [] # filled with any printed line containing '!'
 StopAfterNWords = -1 # for the stopping feature
 
-
+#__________________________________________________________
 def ClearLaneData():
     global DataLane
     global CurrentChipCH
@@ -170,6 +170,7 @@ def ClearLaneData():
     CurrentChipCH = ['-1',]*28
     CurrentChipEF = ['-1',]*28
 
+#__________________________________________________________
 def Exit():
 
     if max(NPrintedWords.values()) > 0:
@@ -191,6 +192,7 @@ def Exit():
             print('None')
     sys.exit()
 
+#__________________________________________________________
 def StringStop():
     global StopAfterNWords
     exitword = input('Enter or a number to continue;  any character to exit: ')
@@ -201,7 +203,7 @@ def StringStop():
             Exit()
         else:
             StopAfterNWords = -1
-
+#__________________________________________________________
 def getnext(nbyte = 16):
 
     global word
@@ -219,6 +221,7 @@ def getnext(nbyte = 16):
 getnext(interval[0])
 getnext()
 
+#__________________________________________________________
 def getbits(bit1, bit2, outtype = "d"): 
     #outtype = bit (s)tring / he(x) string / (0x) hex string / (d)ecimal int / (dump) / (dumpbin)
 
@@ -253,7 +256,7 @@ def getbits(bit1, bit2, outtype = "d"):
         return toret[:-1]
             
 
-
+#__________________________________________________________
 def gettriggers(trg,outtype='list'): 
     #outtype = 'list' or 'string'
 
@@ -268,7 +271,7 @@ def gettriggers(trg,outtype='list'):
                 toret=toret+trglist[b]+' '
         return toret+'(ctp %d)'%(ctp12)
 
-
+#__________________________________________________________
 def readRDH(index):
 
     global RDHversion
@@ -317,7 +320,7 @@ def readRDH(index):
         RDHparbit = getbits(32,47)
 
 
-        
+#__________________________________________________________
 def getinfo_det_field(field):
     toret = 'det_field: '
     if field >> 27:
@@ -339,7 +342,7 @@ def getinfo_det_field(field):
     return toret
 
     
-    
+#__________________________________________________________
 def readword():
 
     global DataLane
@@ -557,7 +560,7 @@ def readword():
 
     return wordtype, comments, laneid
 
-
+#__________________________________________________________
 def isHBFselected():
 
     global RDHfeeid
@@ -572,7 +575,7 @@ def isHBFselected():
     return flag1 and flag2
 
 
-
+#__________________________________________________________
 def myprint(dump, wtype, comments, laneid=-1):
 
     global WarningMessages
@@ -659,9 +662,12 @@ def myprint(dump, wtype, comments, laneid=-1):
 rdhflag = True
 current_rdh_offset = -1
 
-####################################
-############ MAIN LOOP #############
-####################################
+#_____________________________________________________ 
+#_____________________________________________________ 
+#____________________        _________________________ 
+#____________________  MAIN  _________________________ 
+#_____________________________________________________ 
+#_____________________________________________________ 
 
 while word:
 
@@ -745,14 +751,6 @@ while word:
             myprint(getbits(0,8,'dump'),'___','padding')
         getnext()
        
-        
-        
-    #if onlyRDH or not isHBFselected():
-    #    getnext(RDHoffset_new_packet - RDHsize)
-    #print(int(OFFSET,16), RDHoffset_new_packet)
-    #getnext(10)
-    #end of loop
-
     
 
 
