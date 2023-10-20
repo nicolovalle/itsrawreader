@@ -5,11 +5,11 @@
 
 myrawreader.py 
 
-Usage: ./myrawreader.py -f <file.raw> [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [-o <offset>] [-r <range>] [-O <orbit>] [--onlyRDH] [--det-field <filter>] [--dumpbin] [--decode-chips] [--zero-padding] [--warning-summary] [--print-table] [--silent] [--reverse] [--stop <strings>] [-d <raw_output>] [--info]
+Usage: ./myrawreader.py -f <input_file> [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [-o <offset>] [-r <range>] [-O <orbit>] [--onlyRDH] [--det-field <filter>] [--dumpbin] [--decode-chips] [--zero-padding] [--warning-summary] [--print-table] [--silent] [--reverse] [--stop <strings>] [-d <raw_output>] [--info]
 
 Options:
     -h --help                Display this help
-    -f <file.raw>            Raw ITS data file
+    -f <input_file>          Raw ITS data file or list of files
     -e <excludedwords>       Comma separated list of GBT words not to print [default: none]
     -E <skippedwords>        Comma separated list of GBT words not to decode. Overrides -e [default: none]
     -l <lane>                Comma separated list of HW lanes to print [default: -1]
@@ -32,7 +32,7 @@ Options:
    
 """
 
-Version = "v4.0.0 - 20-10-23"
+Version = "v4beta - 20-10-23"
 
 Info = """
 
@@ -128,20 +128,30 @@ if printinfo:
 if skipped_words != 'none':
     nonprinted_words = skipped_words
 
-filesize = os.path.getsize(rawfilename)
-last_offset = '0x'+format(int(filesize)-16,'x').zfill(8)
-print(Version)
-print("Processing file "+rawfilename)
-print("Size: %d. Contains %d lines (up to offset = %s)"%(filesize,filesize/16,last_offset))
-interval = [max(0,myoffset+16*interval[0]), int(filesize)-16 if interval[1]<0 else min(int(filesize)-16, myoffset + interval[1]*16)] 
 
-f = open(rawfilename,'rb')
+# Temporary: use .txt extension to specify it is a list of raw files!
+if os.path.splitext(rawfilename)[-1] == '.txt':
+    ff = open(rawfilename)
+    FILES = [l.replace('\n','') for l in ff.readlines()]
+else:
+    FILES = [rawfilename,]
+
+
+print(Version)
+print("Processing",len(FILES)," raw files")
+totsize = sum([os.path.getsize(ff) for ff in FILES])
+print("Total size: %d"%(totsize))
+print("----------")
+interval = [max(0,myoffset+16*interval[0]), int(totsize)-16 if interval[1]<0 else min(int(totsize)-16, myoffset + interval[1]*16)] 
 
 if rawfileoutput != 'none':
     rawoutput = open(rawfileoutput,'wb')
 
 #global variables
 GBTWORD = [0,]      #will loop over the file: written by getnext()
+
+CurrentFileIndex = -1
+CurrentFile = 0 #dummy initialization. It will be a <class '_io.TextIOWrapper'> when CurrentFile = open(...,'rb') is called
 
 OFFSET = '-0x10'
 
@@ -201,7 +211,7 @@ def Exit():
     t__stop = time.time()
     print()
     print('Total processed:    '+str(int(OFFSET,16)/1000.)+' kB')
-    print('Words printed:      '+str(sum(NPrintedWords.values())))
+    print('Words printed:      '+str(sum(NPrintedWords.values())-NPrintedWords['W/E/F/N!']))
     print('Words not decoded   '+str(NotDecodedBytes_single_words/1000.)+' kB')
     print('Pages not decoded:  '+str(NotDecodedBytes_pages/1000)+' kB')
     print('Time:               '+str(t__stop-t__start)+' s')
@@ -242,10 +252,37 @@ def getnext(nbyte = 16):
     global WORD
     global GBTWORD
     global OFFSET
-    
-    
-    WORD = f.read(nbyte)  # <class 'bytes'>
+    global CurrentFileIndex
+    global CurrentFile
+
+    if nbyte == 0:
+        return
+
+    #print("GETTING NEXT",nbyte,"BYTES. FILEINDEX = ",CurrentFileIndex," IN",FILES)
+    if CurrentFileIndex == -1:
+        CurrentFileIndex += 1
+        CurrentFile = open(FILES[CurrentFileIndex],'rb')
+        fname = FILES[CurrentFileIndex]
+        filesize = os.path.getsize(fname)
+        print("Processing file "+fname)
+        print("Size: %d. Contains %d=%s 16-bytes lines."%(filesize,filesize/16,'0x'+format(int(filesize)-16,'x')))
+
+    #print(CurrentFile)
+    WORD = CurrentFile.read(nbyte)  # <class 'bytes'>
+    #print(WORD, not WORD)
+    if not WORD and CurrentFileIndex < len(FILES)-1:
+        CurrentFile.close()
+        CurrentFileIndex += 1
+        CurrentFile = open(FILES[CurrentFileIndex],'rb')
+        fname = FILES[CurrentFileIndex]
+        filesize = os.path.getsize(fname)
+        print("Processing file "+fname)
+        print("Size: %d. Contains %d=%s 16-bytes lines."%(filesize,filesize/16,'0x'+format(int(filesize)-16,'x')))
+        WORD = CurrentFile.read(nbyte)
+        
+        
     GBTWORD = list(WORD)[0:nbyte] # <class 'list'>
+    #print(GBTWORD)
     OFFSET = '0x'+format(int(OFFSET,16)+nbyte,'x').zfill(8)
     OFFSET = OFFSET.replace('0x-','-0x')
     if int(OFFSET,16) > interval[1]:
