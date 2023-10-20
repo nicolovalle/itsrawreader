@@ -5,7 +5,7 @@
 
 myrawreader.py 
 
-Usage: ./myrawreader.py -f <file.raw> [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [-o <offset>] [-r <range>] [-O <orbit>] [--onlyRDH] [--info] [--dumpbin] [--decode-chips] [--zero-padding] [--warning-summary] [--print-table] [--silent] [--reverse] [--stop <strings>]
+Usage: ./myrawreader.py -f <file.raw> [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [-o <offset>] [-r <range>] [-O <orbit>] [--onlyRDH] [--det-field <filter>] [--dumpbin] [--decode-chips] [--zero-padding] [--warning-summary] [--print-table] [--silent] [--reverse] [--stop <strings>] [-d <raw_output>] [--info]
 
 Options:
     -h --help                Display this help
@@ -18,7 +18,7 @@ Options:
     -r <range>               Interval of GBT words around the offset (format -n:+m) [default: 0:-1]
     -O <orbit>               Comma seprated list of orbits to decode (0x format) or range (0xABC:0xABC). It uses RDH offset [default: -1]
     --onlyRDH                Read RDH only (skip words according to RDH offset) [default: False]
-    --info                   Print info and exit [default: False]    
+    --det-field <filter>     Comma saparated list of flags to filter pages according to detector field (OR logic). See info. [default: none]
     --dumpbin                Print ALPIDE words bit by bit [default: False]  
     --decode-chips           Decode chip data [default: False]
     --zero-padding           Use old data format with zero padding [default: False]
@@ -27,10 +27,12 @@ Options:
     --silent                 Do not print word (but keep statistics on selected ones) [default: False]
     --reverse                Print bytes from rightmost to leftmost [default: False]
     --stop <strings>         Comma separated list. Stop if one of those strings is printed. Use @! for internal errors. Prints even if silent [default: none]
+    -d <raw_output>          Binary file where to save the decoded words [default: none]
+    --info                   Print info and exit [default: False]    
    
 """
 
-Version = "v3.1.0 - 16-09-23"
+Version = "v4.0.0 - 20-10-23"
 
 Info = """
 
@@ -40,20 +42,29 @@ Info = """
 
      * TRIGGER LIST:   {0: 'ORB', 1: 'HB', 2: 'HBr', 3: 'HC', 4:'PhT', 5:'PP', 6:'Cal', 7:'SOT', 8:'EOT', 9:'SOC', 10:'EOC', 11:'TF', 12:'FErst', 13: 'cont', 14: 'running'}
 
-     * Detector fields: eventlist = {4: 'TrgRamp', 5: 'Reco', 27: 'CLK', 26: 'TimeBase', 25: 'TimeBaseUnsync'}; lanestatuslist = {3: 'F', 2: 'E', 1: 'W', 0: 'MissingData'} 
+     * Detector fields: eventlist = {4: 'TrgRamp', 5: 'Reco', 27: 'CLK', 26: 'TimeBase', 25: 'TimeBaseUnsync'}; lanestatuslist = {3: 'F', 2: 'E', 1: 'W', 0: 'MissingData'}
+       
+     * --det-field filter:
+       Strings in eventlist of Detector field can be used to filter the pages
+       Use "not" among the list to exclude all the pages with at least one filtered word 
 
      * Chip data:
        Idl: Idle,  bON/bOF: Busy ON/OFF, E!.: APE error 
        CHi: Chip Header index i, CTi: Chip Trailer (computed from last CH), EFi: Chip Empty Frame index i, DS: Data short, DL: Data long
-       CTb: Busy Viol, CTo: Data Overrun, CTf: faulty
+       CTbi: Busy Viol chip i, CToi: Data Overrun chip i, CTfi: faulty chip i
 
      * Chip errors reported:
-       E!ChipOrderXY (if chip header X is found before Y with X >= Y)
-       W!ChipOrderXY (if empty frame chip X is found before Y with X >= Y)
+       E!ChipOrderXY (if chip header X is found after Y with X >= Y)
+       W!ChipOrderXY (if empty frame chip X is found after Y with X >= Y)
 
      * TABLE FILE:
        A_       B_       C_               D_           E_         F_                   G_        H_       I_     J_  
        RDHfeeid,RDHorbit,RDHpacketcounter,RDHpagecount,RDHstopbit,RDHoffset_new_packet,RDHlinkid,RDHcruid,RDHtrg,RDHbc
+
+     * Dump skimmed data:
+       Use -d to specify the output file name. Filtering out words inside a page will result in wrong RDH offset i.e. data corruption. 
+       Words excluded with -e are not printed on terminal but decoded and saved on raw file. 
+       --silent does not prevent saving on raw file. 
 
      * list of words summarized at the end:
        {'RDH':0, 'RDHstop':0, 'RDHnostop':0, 'RDHTFstop':0, 'TDH':0, 'TDHint':0, 'TDHint_nocont':0, 'TDHPhT':0, 'TDT':0, 'TDTpkt_done':0, 'IHW':0, 'DDW': 0, 'CDW':0, 'DIA':0, 'STA':0, ' . ':0, '___':0, '???':0, 'W/E/F/N!':0}
@@ -66,11 +77,16 @@ import docopt
 import sys
 import os
 import re
+import time
+
 
 argv = docopt.docopt(__doc__,version="1.0")
 rawfilename = str(argv["-f"])
 nonprinted_words = str(argv["-e"])
 skipped_words = str(argv["-E"])
+if 'RDH' in skipped_words:
+    print('RDHs will be decoded in any case. Please use -e not to print them.')
+    sys.exit()
 lanes_to_print = [int (LL) for LL in str(argv["-l"]).split(",")]
 selected_feeid = [] if str(argv["-i"]) == '-1' else [int(fe,16) for fe in str(argv["-i"]).split(",")]
 myoffset = int(str(argv["-o"]),16)
@@ -83,6 +99,7 @@ else:
     selected_orbit_range = [int(orb,16) for orb in str(argv["-O"]).split(":")]
     
 onlyRDH = bool(argv["--onlyRDH"])
+det_field_filter = [] if str(argv["--det-field"]) == 'none' else str(argv["--det-field"]).split(",")
 printinfo = bool(argv["--info"])
 dumpbin = bool(argv["--dumpbin"])
 decodechips = bool(argv["--decode-chips"])
@@ -91,6 +108,7 @@ wordlength = 16 if zeropadding else 10
 printwarnsummary = bool(argv["--warning-summary"])
 printtable = bool(argv["--print-table"])
 silent = bool(argv["--silent"])
+rawfileoutput = str(argv["-d"])
 reverseprint = bool(argv["--reverse"])
 if str(argv["--stop"]) == 'none':
     stopatstring = []
@@ -118,6 +136,9 @@ print("Size: %d. Contains %d lines (up to offset = %s)"%(filesize,filesize/16,la
 interval = [max(0,myoffset+16*interval[0]), int(filesize)-16 if interval[1]<0 else min(int(filesize)-16, myoffset + interval[1]*16)] 
 
 f = open(rawfilename,'rb')
+
+if rawfileoutput != 'none':
+    rawoutput = open(rawfileoutput,'wb')
 
 #global variables
 GBTWORD = [0,]      #will loop over the file: written by getnext()
@@ -147,7 +168,8 @@ DataLane = dict()
 CurrentChipCH = ['-1',]*28 # list of chipid from chip header, for each lane -- overwritten at each CH, used to assign CT id
 CurrentChipEF = ['-1',]*28 # same, but taken from EmptyFrames, used for check on non increasing chip id
 
-BufferRDHdump = []
+BufferRDHdump = [] # filled in myprint with shell string
+BufferRDHraw = [] # filles in myprint with bytes
 
 
 # used to monitor variable changes
@@ -159,6 +181,9 @@ PrintedOrbits = set()
 PrintedFeeIDs = set()
 WarningMessages = [] # filled with any printed line containing '!'
 StopAfterNWords = -1 # for the stopping feature
+
+NotDecodedBytes_single_words = 0
+NotDecodedBytes_pages = 0
 
 #__________________________________________________________
 def ClearLaneData():
@@ -173,17 +198,25 @@ def ClearLaneData():
 #__________________________________________________________
 def Exit():
 
+    t__stop = time.time()
+    print()
+    print('Total processed:    '+str(int(OFFSET,16)/1000.)+' kB')
+    print('Words printed:      '+str(sum(NPrintedWords.values())))
+    print('Words not decoded   '+str(NotDecodedBytes_single_words/1000.)+' kB')
+    print('Pages not decoded:  '+str(NotDecodedBytes_pages/1000)+' kB')
+    print('Time:               '+str(t__stop-t__start)+' s')
+    
     if max(NPrintedWords.values()) > 0:
         print('\nSummary of printed words:')
     for pw in NPrintedWords:
         if NPrintedWords[pw]>0:
-            print("%s:%s %d"%(pw,' '*(15-len(pw)),NPrintedWords[pw]))
+            print("%s%d"%((pw+':').ljust(17),NPrintedWords[pw]))
     NPrintedOrbits = len(PrintedOrbits)
     minorb = min([int(st,16) for st in PrintedOrbits]) if NPrintedOrbits else 0
     maxorb = max([int(st,16) for st in PrintedOrbits]) if NPrintedOrbits else 0
-    
-    print("#RDHOrbits:%s %d, form %s to %s . delta = %d"%(' '*(15-len('#RDHOrbits')),NPrintedOrbits,hex(minorb),hex(maxorb),maxorb-minorb))
-    print("#FeeIDs:%s %d, %s"%(' '*(15-len('#FeeIDs')),len(PrintedFeeIDs),PrintedFeeIDs))
+    print('')
+    print("#RDHOrbits:".ljust(17)+"%d, from %s to %s . delta = %d"%(NPrintedOrbits,hex(minorb),hex(maxorb),maxorb-minorb))
+    print("#FeeIDs:".ljust(17)+"%d, %s"%(len(PrintedFeeIDs),PrintedFeeIDs))
     if printwarnsummary:
         print('\nWarnings and errors:')
         for we in WarningMessages:
@@ -206,20 +239,17 @@ def StringStop():
 #__________________________________________________________
 def getnext(nbyte = 16):
 
-    global word
+    global WORD
     global GBTWORD
     global OFFSET
     
     
-    word = f.read(nbyte)  # <class 'bytes'>
-    GBTWORD = list(word)[0:nbyte] # <class 'list'>
+    WORD = f.read(nbyte)  # <class 'bytes'>
+    GBTWORD = list(WORD)[0:nbyte] # <class 'list'>
     OFFSET = '0x'+format(int(OFFSET,16)+nbyte,'x').zfill(8)
     OFFSET = OFFSET.replace('0x-','-0x')
     if int(OFFSET,16) > interval[1]:
         Exit()
-
-getnext(interval[0])
-getnext()
 
 #__________________________________________________________
 def getbits(bit1, bit2, outtype = "d"): 
@@ -348,6 +378,7 @@ def readword():
     global DataLane
     global CurrentChipCH
     global CurrentChipEF
+    global NotDecodedBytes_single_words
 
     worddict={224:'IHW', 232:'TDH', 240:'TDT', 228:'DDW', 248:'CDW', 255:'___'}
     #ITS Header Word, Trigger Data Heder, Trigger Data Trailer, Diagnostic data word, Calibration Data Word, padding
@@ -367,6 +398,7 @@ def readword():
             wordtype = '???'
 
     if wordtype.replace(' ','').replace('|','') in skipped_words:
+        NotDecodedBytes_single_words += len(GBTWORD)
         return wordtype, 'skipped', -1
     comments = ''
     laneid = -1
@@ -561,18 +593,35 @@ def readword():
     return wordtype, comments, laneid
 
 #__________________________________________________________
-def isHBFselected():
+def isPageSelected():
 
     global RDHfeeid
     global RDHorbit
+    global RDH
     
     flag1 = len(selected_feeid) == 0 or int(RDHfeeid,16) in selected_feeid
     if len(selected_orbit_range) == 0:
         flag2 = len(selected_orbit) == 0 or int(RDHorbit,16) in selected_orbit
     else:
         flag2 = selected_orbit_range[0] <= int(RDHorbit,16) <= selected_orbit_range[1]
-
-    return flag1 and flag2
+    if len(det_field_filter) == 0:
+        flag3 = True
+    else:
+        det_field_info = getinfo_det_field(RDHdet_field)
+        if 'not' in det_field_filter:
+            flag3 = True
+            for df in det_field_filter:
+                if df in det_field_info:
+                    flag3 = False
+                    break
+        else:
+            flag3 = False
+            for df in det_field_filter:
+                if df in det_field_info:
+                    flag3 = True
+                    break
+    
+    return flag1 and flag2 and flag3
 
 
 #__________________________________________________________
@@ -598,12 +647,18 @@ def myprint(dump, wtype, comments, laneid=-1):
             StringStop()
         elif not silent:
             print(line)
+
+    def RawWrite(byt):
+        if rawfileoutput != 'none':
+            rawoutput.write(byt)
         
 
+    global WORD
     global RDHorbit
     global RDHMEM
     global OFFSET
     global BufferRDHdump
+    global BufferRDHraw
     global NPrintedWords
 
     dump1 = OFFSET+':   '+str(dump)+' '*(16*3-len(str(dump))-1)
@@ -627,12 +682,16 @@ def myprint(dump, wtype, comments, laneid=-1):
 
     if '|RDH' in wtype:
         BufferRDHdump = []
+        BufferRDHraw = []
 
     if 'RDH' in wtype:
         BufferRDHdump.append(toprint)
+        BufferRDHraw.append(WORD)
 
-    if 'RDH' not in wtype and flag and isHBFselected():
+    if 'RDH' not in wtype and flag and isPageSelected():
         Print(toprint)
+        RawWrite(WORD)
+        
         NPrintedWords[wtype] += 1
         # THE FOLLOWING HAS TO BE IMPROVED. I WANT TO DISENTANGLE THE PRESENCE OF PHYSICS TRIGGER TO THE WRITTEN COMMENTS
         if wtype == 'TDT':
@@ -648,10 +707,12 @@ def myprint(dump, wtype, comments, laneid=-1):
     
         NPrintedWords['W/E/F/N!'] += '!' in toprint
 
-    if 'RDH|' in wtype and isHBFselected() and flag:
+    if 'RDH|' in wtype and isPageSelected() and flag:
         for rbuff in BufferRDHdump:
             Print(rbuff)
             NPrintedWords['W/E/F/N!'] += '!' in rbuff
+        for wraw in BufferRDHraw:
+            RawWrite(wraw)
         NPrintedWords['RDH'] += 1
         NPrintedWords['RDHstop' if RDHstopbit else 'RDHnostop'] += 1
         NPrintedWords['RDHTFstop'] += ( RDHstopbit and RDHTFtrg)
@@ -659,8 +720,6 @@ def myprint(dump, wtype, comments, laneid=-1):
         PrintedFeeIDs.add(RDHfeeid)
         
 
-rdhflag = True
-current_rdh_offset = -1
 
 #_____________________________________________________ 
 #_____________________________________________________ 
@@ -669,7 +728,13 @@ current_rdh_offset = -1
 #_____________________________________________________ 
 #_____________________________________________________ 
 
-while word:
+t__start = time.time()
+rdhflag = True
+current_rdh_offset = -1
+getnext(interval[0])
+getnext()
+
+while WORD:
 
     comments=''
 
@@ -722,13 +787,14 @@ while word:
 
 
         if printtable:
-            if isHBFselected():
+            if isPageSelected():
                 table_file.write("A_,%s,B_,%s,C_,%d,D_,%d,E_,%d,F_,%d,G_,%d,H_,%d,I_,%d,J_,%d\n"%(RDHfeeid,RDHorbit,RDHpacketcounter,RDHpagecount,RDHstopbit,RDHoffset_new_packet,RDHlinkid,RDHcruid,RDHtrg,RDHbc))
 
 
         rdhflag = False
 
-    elif onlyRDH or not isHBFselected():
+    elif onlyRDH or not isPageSelected():
+        NotDecodedBytes_pages += (RDHoffset_new_packet - RDHsize)
         getnext(RDHoffset_new_packet - RDHsize)
         rdhflag = True
         getnext()
@@ -756,3 +822,6 @@ while word:
 
 if printtable:
     table_file.close()
+
+if rawfileoutput != 'none':
+    rawoutput.close()
