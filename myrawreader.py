@@ -32,7 +32,7 @@ Options:
    
 """
 
-Version = "v4beta - 20-10-23"
+Version = "v4.2beta - 19-12-23"
 
 Info = """
 
@@ -487,6 +487,20 @@ def readword():
                 error_summ = 'Lanes ok '
                 bad_lanes = []
             comments = '%s . %s . %s %s'%(violation, timeout, error_summ, bad_lanes)
+
+    ## Reading calibration data word
+    if wordtype == 'CDW':
+        cdwcounter = getbits(48,71)
+        maskstage = getbits(0,8)
+        runtype = getbits(9,15)
+        loopvalue = getbits(16,31)
+        confdb = getbits(32,44)
+        cdwversion = getbits(45,47)
+        if cdwversion != 1:
+            comments = '????? expected index = 1, read %s'%(cdwversion)
+        else:
+            comments = comments + 'Counter %s - vpuls %s . row %s . db/rtype %s/%s'%(cdwcounter,loopvalue,maskstage,confdb,runtype) 
+        
         
     if wordtype == ' . ':
         #scan_words = [getbits(8*i,8*i+7,'x') for i in range(9)]
