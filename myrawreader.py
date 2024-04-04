@@ -80,7 +80,7 @@ import re
 import time
 
 
-argv = docopt.docopt(__doc__,version="1.0")
+argv = docopt.docopt(__doc__,version=Version)
 rawfilename = str(argv["-f"])
 nonprinted_words = str(argv["-e"])
 skipped_words = str(argv["-E"])
