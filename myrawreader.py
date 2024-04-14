@@ -5,7 +5,9 @@
 
 myrawreader.py 
 
-Usage: ./myrawreader.py -f <input_file> [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [-o <offset>] [-r <range>] [-O <orbit>] [--onlyRDH] [--det-field <filter>] [--dumpbin] [--decode-chips] [--zero-padding] [--warning-summary] [--print-table] [--silent] [--reverse] [--stop <strings>] [-d <raw_output>] [--info]
+Usage:
+     ./myrawreader.py --info 
+     ./myrawreader.py -f <input_file> [-e <excludedwords>] [-E <skippedwords>] [-l <lane>] [-i <feeid>] [-o <offset>] [-r <range>] [-O <orbit>] [--onlyRDH] [--det-field <filter>] [--dumpbin] [--decode-chips] [--zero-padding] [--warning-summary] [--print-table] [--silent] [--reverse] [--stop <strings>] [-d <raw_output>] [--info]
 
 Options:
     -h --help                Display this help
@@ -32,7 +34,7 @@ Options:
    
 """
 
-Version = "v4.2beta - 19-12-23"
+Version = "v4.2.1 - 19-12-23"
 
 Info = """
 
